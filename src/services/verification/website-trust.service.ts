@@ -21,8 +21,12 @@ import type {
   TrustBand,
 } from '../../types';
 
-// Import whois-json (no type definitions available)
-const whois = require('whois-json');
+// whois-json v2 is ESM-only — load lazily via dynamic import
+let _whois: ((domain: string) => Promise<Record<string, unknown>>) | null = null;
+async function getWhois() {
+  if (!_whois) _whois = (await import('whois-json')).default as typeof _whois;
+  return _whois!;
+}
 
 /**
  * Website Trust Service
@@ -133,8 +137,9 @@ export class WebsiteTrustService {
     try {
       logger.debug('Checking domain age', { domain });
 
+      const whoisFn = await getWhois();
       const whoisData = await Promise.race([
-        whois(domain),
+        whoisFn(domain),
         new Promise((_, reject) =>
           setTimeout(() => reject(new Error('WHOIS timeout')), this.WHOIS_TIMEOUT)
         ),
