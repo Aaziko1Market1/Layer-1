@@ -802,9 +802,9 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
             empty={!s?.google?.biz_phone && !s?.google?.biz_website && !s?.google?.emails_found && !s?.google?.biz_address}
           />
 
-          {/* Global Trade API */}
+          {/* General Scraper */}
           <ScraperCard
-            icon="🌐" title="Global Trade API" color="blue"
+            icon="🌐" title="General" color="blue"
             items={[
               s?.global?.pages_scraped > 0 && { label: 'Pages scraped', value: `${s.global.pages_scraped}`, icon: 'text' },
               s?.global?.industry && { label: 'Industry', value: s.global.industry, icon: 'text' },
