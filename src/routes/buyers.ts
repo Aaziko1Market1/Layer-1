@@ -6,6 +6,45 @@ import { env } from '../config/env';
 
 const router = Router();
 
+function mergeScraperSummaries(newPipeline: any, legacy: any): any {
+  if (!newPipeline && !legacy) return null;
+  if (!newPipeline) return legacy;
+  if (!legacy) return newPipeline;
+
+  const pick = (a: any, b: any, key: string) => a?.[key] || b?.[key] || null;
+  const pickNum = (a: any, b: any, key: string) => (a?.[key] || 0) > (b?.[key] || 0) ? a?.[key] : b?.[key] || 0;
+
+  return {
+    google: {
+      success: newPipeline.google?.success || legacy.google?.success,
+      results: pickNum(newPipeline.google, legacy.google, 'results'),
+      biz_phone: pick(newPipeline.google, legacy.google, 'biz_phone'),
+      biz_website: pick(newPipeline.google, legacy.google, 'biz_website'),
+      biz_address: pick(newPipeline.google, legacy.google, 'biz_address'),
+      biz_rating: pick(newPipeline.google, legacy.google, 'biz_rating'),
+      emails_found: pickNum(newPipeline.google, legacy.google, 'emails_found'),
+      phones_found: pickNum(newPipeline.google, legacy.google, 'phones_found'),
+    },
+    global: {
+      success: newPipeline.global?.success || legacy.global?.success,
+      pages_scraped: pickNum(newPipeline.global, legacy.global, 'pages_scraped'),
+      industry: pick(newPipeline.global, legacy.global, 'industry'),
+      description: pick(newPipeline.global, legacy.global, 'description'),
+      website: pick(newPipeline.global, legacy.global, 'website'),
+      address: pick(newPipeline.global, legacy.global, 'address'),
+      emails_found: pickNum(newPipeline.global, legacy.global, 'emails_found'),
+      phones_found: pickNum(newPipeline.global, legacy.global, 'phones_found'),
+    },
+    apollo: {
+      success: newPipeline.apollo?.success || legacy.apollo?.success,
+      domain: pick(newPipeline.apollo, legacy.apollo, 'domain'),
+      org_phone: pick(newPipeline.apollo, legacy.apollo, 'org_phone'),
+      org_linkedin: pick(newPipeline.apollo, legacy.apollo, 'org_linkedin'),
+      people: (newPipeline.apollo?.people?.length > 0 ? newPipeline.apollo.people : legacy.apollo?.people) || [],
+    },
+  };
+}
+
 async function getDhruval() {
   const client = new MongoClient(env.MONGODB_URI);
   await client.connect();
@@ -30,9 +69,20 @@ router.get('/', async (req: Request, res: Response) => {
     };
     if (search) filter.name = { ...filter.name, $regex: search, $options: 'i' };
     if (country) filter.country = { $regex: country, $options: 'i' };
-    if (productSearch) filter.products = { $elemMatch: { $regex: productSearch, $options: 'i' } };
+    if (productSearch) {
+      if (!filter.$and) filter.$and = [];
+      filter.$and.push({
+        $or: [
+          { products: { $elemMatch: { $regex: productSearch, $options: 'i' } } },
+          { name: { $regex: productSearch, $options: 'i' } },
+        ],
+      });
+    }
     if (category) filter.category = category;
-    if (statusFilter === 'enriched') filter.$or = [{ enrichment_status: 'done' }, { scrapedData: { $exists: true } }];
+    if (statusFilter === 'enriched') {
+      if (!filter.$and) filter.$and = [];
+      filter.$and.push({ $or: [{ enrichment_status: 'done' }, { scrapedData: { $exists: true } }] });
+    }
     if (statusFilter === 'not_run') { filter.enrichment_status = { $nin: ['done'] }; filter.scrapedData = { $exists: false }; }
     if (minScore) filter.lead_score = { ...(filter.lead_score || {}), $gte: parseInt(minScore) };
     if (maxScore) filter.lead_score = { ...(filter.lead_score || {}), $lte: parseInt(maxScore) };
@@ -176,7 +226,8 @@ router.get('/', async (req: Request, res: Response) => {
         contact_details: contacts,
         contactCount: emails.length + phones.length + names.length,
         enrichStatus: b.enrichment_status === 'done' ? 'complete' : (sd ? 'complete' : (b.enrichment_status || 'not_run')),
-        scraperSummary: b.enrichment_steps_summary || legacyScraperSummary || null,
+        scraperSummary: mergeScraperSummaries(b.enrichment_steps_summary, legacyScraperSummary),
+        buyer_notes: b.buyer_notes || '',
       };
     });
 
@@ -262,6 +313,30 @@ router.patch('/:id/contacts', async (req: Request, res: Response) => {
     res.json({ ok: true, saved: cleaned.length });
   } catch (err: any) {
     logger.error('Save contacts failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  } finally {
+    await client.close();
+  }
+});
+
+// PATCH /api/buyers/:id/notes — save a note for this buyer
+router.patch('/:id/notes', async (req: Request, res: Response) => {
+  const { client, db } = await getDhruval();
+  try {
+    const { notes } = req.body as { notes: string };
+    if (typeof notes !== 'string') return res.status(400).json({ error: 'notes must be a string' }) as any;
+
+    let filter: any;
+    try { filter = { _id: new (require('mongodb').ObjectId)(req.params.id) }; }
+    catch { filter = { name: req.params.id }; }
+
+    await db.collection('shortlist_buyer_seller').updateOne(filter, {
+      $set: { buyer_notes: notes.trim(), buyer_notes_updated_at: new Date() },
+    });
+
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error('Save notes failed', { error: err.message });
     res.status(500).json({ error: err.message });
   } finally {
     await client.close();
