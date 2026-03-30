@@ -24,7 +24,11 @@ import type {
 // whois-json v2 is ESM-only — load lazily via dynamic import
 let _whois: ((domain: string) => Promise<Record<string, unknown>>) | null = null;
 async function getWhois() {
-  if (!_whois) _whois = (await import('whois-json')).default as typeof _whois;
+  if (!_whois) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod = await (Function('return import("whois-json")')() as Promise<any>);
+    _whois = (mod.default ?? mod) as typeof _whois;
+  }
   return _whois!;
 }
 
