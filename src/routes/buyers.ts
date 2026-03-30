@@ -19,6 +19,9 @@ router.get('/', async (req: Request, res: Response) => {
     const {
       search = '', country = '', limit = '50', skip = '0',
       hasContact = '', sort = 'totalAmount',
+      productSearch = '', category = '',
+      statusFilter = '', minScore = '', maxScore = '',
+      sortDir = 'desc',
     } = req.query as Record<string, string>;
 
     const filter: Record<string, any> = {
@@ -27,10 +30,16 @@ router.get('/', async (req: Request, res: Response) => {
     };
     if (search) filter.name = { ...filter.name, $regex: search, $options: 'i' };
     if (country) filter.country = { $regex: country, $options: 'i' };
+    if (productSearch) filter.products = { $elemMatch: { $regex: productSearch, $options: 'i' } };
+    if (category) filter.category = category;
+    if (statusFilter === 'enriched') filter.$or = [{ enrichment_status: 'done' }, { scrapedData: { $exists: true } }];
+    if (statusFilter === 'not_run') { filter.enrichment_status = { $nin: ['done'] }; filter.scrapedData = { $exists: false }; }
+    if (minScore) filter.lead_score = { ...(filter.lead_score || {}), $gte: parseInt(minScore) };
+    if (maxScore) filter.lead_score = { ...(filter.lead_score || {}), $lte: parseInt(maxScore) };
 
     const buyers = await db.collection('shortlist_buyer_seller')
       .find(filter)
-      .sort({ [sort]: -1 })
+      .sort({ [sort]: sortDir === 'asc' ? 1 : -1 })
       .skip(parseInt(skip))
       .limit(Math.min(parseInt(limit), 200))
       .toArray();
@@ -52,50 +61,53 @@ router.get('/', async (req: Request, res: Response) => {
       let legacyScraperSummary: any = null;
       let legacyDomain: string | null = null;
 
-      if (contacts.length === 0 && sd) {
-        // Google Knowledge Panel data
+      if (sd) {
         const g = sd.google || {};
-        if (g.phone || g.address || g.website) {
-          // Google sometimes gives the google.co.in homepage as website — skip those
-          const rawWebsite = (g.website || '');
-          const isBadWebsite = rawWebsite.includes('google.') || rawWebsite.includes('goo.gl');
-          contacts.push({
-            name: g.name || null, title: null,
-            email: null, phone: g.phone || null,
-            linkedin: null,
-            website: isBadWebsite ? null : rawWebsite,
-            address: g.address || null, source: 'google_business',
-          });
-        }
+        const ap = sd.apollo || {};
+        const gen = sd.general || {};
 
-        // Domain from detailed_content[0] (old pipeline) — stored inside scrapedData.general
-        const dc0 = (sd.general?.detailed_content || sd.detailed_content || [])[0] || {};
+        // Domain from detailed_content[0] (old pipeline)
+        const dc0 = (gen.detailed_content || sd.detailed_content || [])[0] || {};
         if (dc0.domain) {
           legacyDomain = (dc0.domain as string).replace(/^www\./, '');
         } else if (dc0.base_url) {
           try { legacyDomain = new URL(dc0.base_url as string).hostname.replace(/^www\./, ''); } catch { /* skip */ }
         }
 
-        // Apollo legacy
-        const ap = sd.apollo || {};
-        if (ap.contactPersons?.length > 0) {
-          for (const cp of ap.contactPersons) {
-            if (cp.name || cp.email) {
-              contacts.push({
-                name: cp.name || null, title: cp.title || null,
-                email: cp.email || null, phone: cp.mobile || null,
-                linkedin: cp.linkedin || null, website: null, address: null,
-                source: 'apollo',
-              });
+        // Only add old-pipeline contacts if no new-pipeline contacts yet
+        if (contacts.length === 0) {
+          if (g.phone || g.address || g.website) {
+            const rawWebsite = (g.website || '');
+            const isBadWebsite = rawWebsite.includes('google.') || rawWebsite.includes('goo.gl');
+            contacts.push({
+              name: g.name || null, title: null,
+              email: null, phone: g.phone || null,
+              linkedin: null,
+              website: isBadWebsite ? null : rawWebsite,
+              address: g.address || null, source: 'google_business',
+            });
+          }
+          if (ap.contactPersons?.length > 0) {
+            for (const cp of ap.contactPersons) {
+              if (cp.name || cp.email) {
+                contacts.push({
+                  name: cp.name || null, title: cp.title || null,
+                  email: cp.email || null, phone: cp.mobile || null,
+                  linkedin: cp.linkedin || null, website: null, address: null,
+                  source: 'apollo',
+                });
+              }
             }
           }
         }
 
-        // Build a legacy scraperSummary so the dropdown shows old data
+        // Always build legacyScraperSummary so dropdown shows old data
+        const cleanIndustry = (gen.industry || '').replace(/[_,\s]+$/, '').trim() || null;
+        const cleanDesc = (gen.description || '').replace(/[,\s]+$/, '').trim() || null;
         legacyScraperSummary = {
           google: {
-            success: !!g.phone || !!g.address,
-            results: sd.general?.total_urls || 0,
+            success: !!g.phone || !!g.address || !!g.website,
+            results: gen.total_urls || 0,
             biz_phone: g.phone || null,
             biz_website: legacyDomain ? `https://${legacyDomain}` : (g.website && !g.website.includes('google.') ? g.website : null),
             biz_address: g.address || null,
@@ -104,9 +116,12 @@ router.get('/', async (req: Request, res: Response) => {
             phones_found: g.phone ? 1 : 0,
           },
           global: {
-            success: sd.general?.status === 'success',
-            pages_scraped: sd.general?.scraped || 0,
-            industry: sd.general?.industry || null,
+            success: (gen.status || '').toLowerCase().startsWith('success'),
+            pages_scraped: gen.scraped || gen.websites_found || 0,
+            industry: cleanIndustry,
+            description: cleanDesc,
+            website: gen.website || dc0.base_url || null,
+            address: gen.address || null,
             emails_found: 0,
             phones_found: 0,
           },

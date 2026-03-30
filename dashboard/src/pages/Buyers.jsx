@@ -3,10 +3,13 @@ import {
   Search, Zap, Mail, Phone, Globe, Linkedin,
   ChevronLeft, ChevronRight, RefreshCw,
   CheckCircle2, Clock, Play, Square, AlertCircle, X,
-  ChevronDown, ChevronUp, User, Building2, Plus, Trash2, Save, ShieldCheck
+  ChevronDown, ChevronUp, User, Building2, Plus, Trash2, Save, ShieldCheck,
+  Filter, ArrowUpDown, ArrowUp, ArrowDown, Tag, Package,
 } from 'lucide-react';
 import { fetchBuyers, runEnrichment } from '../api';
 import api from '../api';
+
+const BUYER_TYPES = ['B1', 'B2', 'B3', 'B4', 'B5', 'B6'];
 
 export default function Buyers() {
   const [buyers, setBuyers] = useState([]);
@@ -14,11 +17,16 @@ export default function Buyers() {
   const [enrichedCount, setEnrichedCount] = useState(0);
   const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ search: '', country: '', hasContact: '', sort: 'totalAmount' });
+  const [filters, setFilters] = useState({
+    search: '', productSearch: '', country: '', category: '',
+    hasContact: '', sort: 'totalAmount', sortDir: 'desc',
+    statusFilter: '', minScore: '', maxScore: '',
+  });
   const [selected, setSelected] = useState(new Set());
   const [enriching, setEnriching] = useState(false);
   const [enrichMsg, setEnrichMsg] = useState('');
   const [expandedRow, setExpandedRow] = useState(null);
+  const [openColFilter, setOpenColFilter] = useState(null);
 
   // Enrich-All state
   const [jobProgress, setJobProgress] = useState(null);
@@ -53,7 +61,7 @@ export default function Buyers() {
     setExpandedRow(null);
     try {
       const params = { ...filters, limit: LIMIT, skip: newSkip };
-      Object.keys(params).forEach(k => { if (params[k] === '') delete params[k]; });
+      Object.keys(params).forEach(k => { if (params[k] === '' || params[k] === undefined) delete params[k]; });
       const res = await fetchBuyers(params);
       setBuyers(res.buyers || []);
       setTotal(res.total || 0);
@@ -67,6 +75,16 @@ export default function Buyers() {
   }, [filters]);
 
   useEffect(() => { load(0); }, [load]);
+
+  // Close column filter dropdown on outside click
+  useEffect(() => {
+    if (!openColFilter) return;
+    const handler = (e) => {
+      if (!e.target.closest('.col-filter-container')) setOpenColFilter(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openColFilter]);
 
   const toggleSelect = (name) => {
     const next = new Set(selected);
@@ -114,9 +132,24 @@ export default function Buyers() {
     } catch { }
   };
 
+  const setSort = (field) => {
+    setFilters(f => ({
+      ...f,
+      sort: field,
+      sortDir: f.sort === field && f.sortDir === 'desc' ? 'asc' : 'desc',
+    }));
+    setOpenColFilter(null);
+  };
+
   const page = Math.floor(skip / LIMIT) + 1;
   const totalPages = Math.ceil(total / LIMIT);
   const isJobRunning = jobProgress?.status === 'running';
+
+  const activeFiltersCount = [
+    filters.productSearch, filters.country, filters.category,
+    filters.statusFilter, filters.minScore, filters.maxScore,
+    filters.hasContact,
+  ].filter(Boolean).length;
 
   return (
     <div className="p-6 space-y-4">
@@ -181,11 +214,10 @@ export default function Buyers() {
           <p className="text-sm text-purple-700">
             Runs the free 3-step pipeline: <strong>Google Scraper → Global API → Apollo (free)</strong> on every buyer.
             Finds emails, phones, company domain, and contact names/positions.
-            Results saved to <code className="bg-purple-100 px-1 rounded">shortlist_buyer_seller.contact_details[]</code>.
           </p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs font-medium text-gray-600 block mb-1">Batch Size (buyers at a time)</label>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Batch Size</label>
               <select
                 value={batchSize}
                 onChange={e => setBatchSize(parseInt(e.target.value))}
@@ -284,41 +316,117 @@ export default function Buyers() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      {/* ── Filters ─────────────────────────────────────────────────────── */}
+      <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2 shadow-sm">
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Company name search */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              placeholder="Search company name..."
+              value={filters.search}
+              onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+
+          {/* Product search */}
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
+            <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              placeholder="Search product..."
+              value={filters.productSearch}
+              onChange={e => setFilters(f => ({ ...f, productSearch: e.target.value }))}
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+
+          {/* Country */}
           <input
-            placeholder="Search buyer name..."
-            value={filters.search}
-            onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            placeholder="Country (e.g. INDIA)"
+            value={filters.country}
+            onChange={e => setFilters(f => ({ ...f, country: e.target.value }))}
+            className="w-36 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
           />
+
+          {/* Buyer type / category */}
+          <div className="relative">
+            <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <select
+              value={filters.category}
+              onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}
+              className="pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">All Types</option>
+              {BUYER_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+
+          {/* Contact filter */}
+          <select
+            value={filters.hasContact}
+            onChange={e => setFilters(f => ({ ...f, hasContact: e.target.value }))}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">All Buyers</option>
+            <option value="true">With Contacts</option>
+            <option value="false">No Contacts</option>
+          </select>
+
+          {/* Status filter */}
+          <select
+            value={filters.statusFilter}
+            onChange={e => setFilters(f => ({ ...f, statusFilter: e.target.value }))}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">All Status</option>
+            <option value="enriched">Enriched</option>
+            <option value="not_run">Not Enriched</option>
+          </select>
+
+          {/* Score range */}
+          <div className="flex items-center gap-1">
+            <input
+              type="number" min="0" max="100"
+              placeholder="Score ≥"
+              value={filters.minScore}
+              onChange={e => setFilters(f => ({ ...f, minScore: e.target.value }))}
+              className="w-20 px-2 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <span className="text-gray-400 text-xs">–</span>
+            <input
+              type="number" min="0" max="100"
+              placeholder="≤ 100"
+              value={filters.maxScore}
+              onChange={e => setFilters(f => ({ ...f, maxScore: e.target.value }))}
+              className="w-20 px-2 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+
+          {/* Sort */}
+          <select
+            value={filters.sort}
+            onChange={e => setFilters(f => ({ ...f, sort: e.target.value }))}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="totalAmount">Sort: Trade Value</option>
+            <option value="transactionCount">Sort: Transactions</option>
+            <option value="lead_score">Sort: Lead Score</option>
+          </select>
+
+          {activeFiltersCount > 0 && (
+            <button
+              onClick={() => setFilters({
+                search: '', productSearch: '', country: '', category: '',
+                hasContact: '', sort: 'totalAmount', sortDir: 'desc',
+                statusFilter: '', minScore: '', maxScore: '',
+              })}
+              className="flex items-center gap-1 px-3 py-2 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+            >
+              <X className="w-3 h-3" /> Clear ({activeFiltersCount})
+            </button>
+          )}
         </div>
-        <input
-          placeholder="Country (e.g. INDIA)"
-          value={filters.country}
-          onChange={e => setFilters(f => ({ ...f, country: e.target.value }))}
-          className="w-40 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-        />
-        <select
-          value={filters.hasContact}
-          onChange={e => setFilters(f => ({ ...f, hasContact: e.target.value }))}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="">All Buyers</option>
-          <option value="true">With Contacts</option>
-          <option value="false">No Contacts</option>
-        </select>
-        <select
-          value={filters.sort}
-          onChange={e => setFilters(f => ({ ...f, sort: e.target.value }))}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-        >
-          <option value="totalAmount">Sort: Trade Value</option>
-          <option value="transactionCount">Sort: Transactions</option>
-          <option value="lead_score">Sort: Lead Score</option>
-        </select>
       </div>
 
       {/* Table */}
@@ -342,13 +450,81 @@ export default function Buyers() {
                         : setSelected(new Set(buyers.map(b => b.name)))}
                       className="rounded" />
                   </th>
-                  <th className="px-4 py-3 font-medium">Company</th>
-                  <th className="px-4 py-3 font-medium">Country</th>
-                  <th className="px-4 py-3 font-medium">Score</th>
-                  <th className="px-4 py-3 font-medium">Domain</th>
-                  <th className="px-4 py-3 font-medium">Contact Details Found</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium w-10"></th>
+                  <ColHeader label="Company" field="name" filters={filters} setSort={setSort}
+                    colKey="company" openColFilter={openColFilter} setOpenColFilter={setOpenColFilter}>
+                    <div className="p-2 space-y-1 text-xs">
+                      <p className="font-medium text-gray-600 mb-1">Sort by Name</p>
+                      <button onClick={() => setSort('name')} className="w-full text-left px-2 py-1 hover:bg-gray-100 rounded flex items-center gap-1">
+                        <ArrowUp className="w-3 h-3" /> A → Z
+                      </button>
+                    </div>
+                  </ColHeader>
+                  <ColHeader label="Country" field="country" filters={filters} setSort={setSort}
+                    colKey="country" openColFilter={openColFilter} setOpenColFilter={setOpenColFilter}>
+                    <div className="p-2 space-y-1 text-xs w-40">
+                      <p className="font-medium text-gray-600 mb-1">Quick Country</p>
+                      {['INDIA', 'USA', 'CANADA', 'UK', 'AUSTRALIA', 'UAE', 'GERMANY'].map(c => (
+                        <button key={c} onClick={() => { setFilters(f => ({ ...f, country: c })); setOpenColFilter(null); }}
+                          className={`w-full text-left px-2 py-1 hover:bg-gray-100 rounded ${filters.country === c ? 'text-brand-600 font-medium' : ''}`}>
+                          {c}
+                        </button>
+                      ))}
+                      {filters.country && <button onClick={() => { setFilters(f => ({ ...f, country: '' })); setOpenColFilter(null); }}
+                        className="w-full text-left px-2 py-1 text-red-500 hover:bg-red-50 rounded">Clear</button>}
+                    </div>
+                  </ColHeader>
+                  <ColHeader label="Score" field="lead_score" filters={filters} setSort={setSort}
+                    colKey="score" openColFilter={openColFilter} setOpenColFilter={setOpenColFilter}>
+                    <div className="p-2 space-y-1 text-xs w-36">
+                      <p className="font-medium text-gray-600 mb-1">Score Range</p>
+                      {[['High (70+)', '70', ''], ['Medium (40-69)', '40', '69'], ['Low (<40)', '', '39']].map(([label, min, max]) => (
+                        <button key={label} onClick={() => { setFilters(f => ({ ...f, minScore: min, maxScore: max })); setOpenColFilter(null); }}
+                          className="w-full text-left px-2 py-1 hover:bg-gray-100 rounded">{label}</button>
+                      ))}
+                      {(filters.minScore || filters.maxScore) && (
+                        <button onClick={() => { setFilters(f => ({ ...f, minScore: '', maxScore: '' })); setOpenColFilter(null); }}
+                          className="w-full text-left px-2 py-1 text-red-500 hover:bg-red-50 rounded">Clear</button>
+                      )}
+                    </div>
+                  </ColHeader>
+                  <ColHeader label="Domain" field="domain_found" filters={filters} setSort={setSort}
+                    colKey="domain" openColFilter={openColFilter} setOpenColFilter={setOpenColFilter}>
+                    <div className="p-2 space-y-1 text-xs w-36">
+                      <p className="font-medium text-gray-600">Sort</p>
+                      <button onClick={() => setSort('domain_found')} className="w-full text-left px-2 py-1 hover:bg-gray-100 rounded">
+                        By Domain A→Z
+                      </button>
+                    </div>
+                  </ColHeader>
+                  <ColHeader label="Contact Details Found" field="contactCount" filters={filters} setSort={setSort}
+                    colKey="contact" openColFilter={openColFilter} setOpenColFilter={setOpenColFilter}>
+                    <div className="p-2 space-y-1 text-xs w-40">
+                      <p className="font-medium text-gray-600 mb-1">Filter Contacts</p>
+                      {[['With Email/Phone', 'true'], ['No Contacts', 'false']].map(([label, val]) => (
+                        <button key={val} onClick={() => { setFilters(f => ({ ...f, hasContact: val })); setOpenColFilter(null); }}
+                          className={`w-full text-left px-2 py-1 hover:bg-gray-100 rounded ${filters.hasContact === val ? 'text-brand-600 font-medium' : ''}`}>
+                          {label}
+                        </button>
+                      ))}
+                      {filters.hasContact && <button onClick={() => { setFilters(f => ({ ...f, hasContact: '' })); setOpenColFilter(null); }}
+                        className="w-full text-left px-2 py-1 text-red-500 hover:bg-red-50 rounded">Clear</button>}
+                    </div>
+                  </ColHeader>
+                  <ColHeader label="Status" field="enrichment_status" filters={filters} setSort={setSort}
+                    colKey="status" openColFilter={openColFilter} setOpenColFilter={setOpenColFilter}>
+                    <div className="p-2 space-y-1 text-xs w-36">
+                      <p className="font-medium text-gray-600 mb-1">Filter Status</p>
+                      {[['Enriched', 'enriched'], ['Not Enriched', 'not_run']].map(([label, val]) => (
+                        <button key={val} onClick={() => { setFilters(f => ({ ...f, statusFilter: val })); setOpenColFilter(null); }}
+                          className={`w-full text-left px-2 py-1 hover:bg-gray-100 rounded ${filters.statusFilter === val ? 'text-brand-600 font-medium' : ''}`}>
+                          {label}
+                        </button>
+                      ))}
+                      {filters.statusFilter && <button onClick={() => { setFilters(f => ({ ...f, statusFilter: '' })); setOpenColFilter(null); }}
+                        className="w-full text-left px-2 py-1 text-red-500 hover:bg-red-50 rounded">Clear</button>}
+                    </div>
+                  </ColHeader>
+                  <th className="px-4 py-3 w-10"></th>
                 </tr>
               </thead>
               <tbody>
@@ -356,15 +532,23 @@ export default function Buyers() {
                   <>
                     <tr
                       key={b._id}
-                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${selected.has(b.name) ? 'bg-brand-50' : ''} ${expandedRow === b._id ? 'bg-blue-50' : ''}`}
+                      onClick={(e) => {
+                        // Don't expand if clicking checkbox or links
+                        if (e.target.type === 'checkbox' || e.target.closest('a') || e.target.closest('button')) return;
+                        setExpandedRow(expandedRow === b._id ? null : b._id);
+                      }}
+                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer ${selected.has(b.name) ? 'bg-brand-50' : ''} ${expandedRow === b._id ? 'bg-blue-50' : ''}`}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={selected.has(b.name)} onChange={() => toggleSelect(b.name)} className="rounded" />
                       </td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900">{b.name}</p>
+                        {b.category && (
+                          <span className="inline-block text-xs px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium mr-1 mt-0.5">{b.category}</span>
+                        )}
                         {b.products?.length > 0 && (
-                          <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{b.products[0]}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate" title={b.products.join(', ')}>{b.products[0]}</p>
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{b.country || '—'}</td>
@@ -374,7 +558,8 @@ export default function Buyers() {
                       <td className="px-4 py-3">
                         {b.domain && !b.domain.includes('null') ? (
                           <a href={`https://${b.domain}`} target="_blank" rel="noreferrer"
-                            className="flex items-center gap-1 text-brand-600 hover:underline text-xs font-mono">
+                            className="flex items-center gap-1 text-brand-600 hover:underline text-xs font-mono"
+                            onClick={e => e.stopPropagation()}>
                             <Globe className="w-3 h-3" />{b.domain}
                           </a>
                         ) : <span className="text-gray-300 text-xs">—</span>}
@@ -394,7 +579,7 @@ export default function Buyers() {
                           humanVerifiedCount={(b.contact_details || []).filter(c => c.human_verified).length}
                         />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => setExpandedRow(expandedRow === b._id ? null : b._id)}
                           className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700 transition-colors"
@@ -407,7 +592,6 @@ export default function Buyers() {
                       </td>
                     </tr>
 
-                    {/* Expanded scraper details + manual edit row */}
                     {expandedRow === b._id && (
                       <tr key={`${b._id}-detail`} className="bg-blue-50 border-b border-blue-100">
                         <td colSpan={8} className="px-4 py-4">
@@ -449,16 +633,53 @@ export default function Buyers() {
   );
 }
 
+// ── Column Header with sort + filter dropdown ─────────────────────────────────
+function ColHeader({ label, field, filters, setSort, colKey, openColFilter, setOpenColFilter, children }) {
+  const isActive = filters.sort === field;
+  const isOpen = openColFilter === colKey;
+  return (
+    <th className="px-4 py-3 font-medium">
+      <div className="flex items-center gap-1 group">
+        <button
+          onClick={() => setSort(field)}
+          className="flex items-center gap-1 hover:text-gray-900 transition-colors"
+        >
+          {label}
+          {isActive ? (
+            filters.sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-brand-600" /> : <ArrowUp className="w-3 h-3 text-brand-600" />
+          ) : (
+            <ArrowUpDown className="w-3 h-3 text-gray-300 group-hover:text-gray-400" />
+          )}
+        </button>
+        {children && (
+          <div className="relative col-filter-container">
+            <button
+              onClick={(e) => { e.stopPropagation(); setOpenColFilter(isOpen ? null : colKey); }}
+              className={`p-0.5 rounded hover:bg-gray-200 transition-colors ${isOpen ? 'text-brand-600 bg-brand-50' : 'text-gray-300 hover:text-gray-500'}`}
+              title="Filter"
+            >
+              <Filter className="w-3 h-3" />
+            </button>
+            {isOpen && (
+              <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[140px]">
+                {children}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </th>
+  );
+}
+
 // ── Scraper Details Panel + Manual Editor ────────────────────────────────────
 const EMPTY_ROW = () => ({ email: '', phone: '', name: '', position: '', linkedin: '', source: 'manual', human_verified: false, human_verified_at: null });
 
 function ScraperDetailsPanel({ buyer, onSaved }) {
   const s = buyer.scraperSummary;
 
-  // Build initial manual rows from existing contacts
   const buildRows = () => {
     const rows = [];
-    // Prefer contact_details array (has human_verified per row)
     const cd = buyer.contact_details || [];
     if (cd.length > 0) {
       cd.forEach(c => rows.push({
@@ -522,19 +743,14 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
     try {
       const res = await api.patch(`/buyers/${buyer._id}/contacts`, { contacts: rows });
       setSavedMsg(`✓ Saved ${res.data.saved} contact(s)`);
-      // Rebuild display data and push full contact_details (with human_verified) back to parent
       const emails = [...new Set(rows.filter(r => r.email).map(r => r.email))];
       const phones = [...new Set(rows.filter(r => r.phone).map(r => r.phone))];
       const linkedins = [...new Set(rows.filter(r => r.linkedin).map(r => r.linkedin))];
       const namedContacts = rows.filter(r => r.name).map(r => ({ name: r.name, position: r.position || null }));
-      // Pass contact_details so re-opening the row keeps human_verified state
       const contact_details = rows.filter(r => r.email || r.phone || r.name || r.linkedin).map(r => ({
-        email: r.email || null,
-        phone: r.phone || null,
-        name: r.name || null,
-        position: r.position || null,
-        linkedin: r.linkedin || null,
-        source: r.source || 'manual',
+        email: r.email || null, phone: r.phone || null,
+        name: r.name || null, position: r.position || null,
+        linkedin: r.linkedin || null, source: r.source || 'manual',
         human_verified: r.human_verified || false,
         human_verified_at: r.human_verified_at || null,
       }));
@@ -563,21 +779,27 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
               s?.google?.biz_address && { label: 'Address', value: s.google.biz_address, icon: 'text' },
               s?.google?.biz_rating && { label: 'Rating', value: `⭐ ${s.google.biz_rating}`, icon: 'text' },
               s?.google?.emails_found > 0 && { label: 'Emails from search', value: `${s.google.emails_found} found`, icon: 'email' },
-              s?.google?.results > 0 && { label: 'Search pages', value: `${s.google.results} results`, icon: 'text' },
+              s?.google?.results > 0 && { label: 'Search results', value: `${s.google.results}`, icon: 'text' },
             ].filter(Boolean)}
-            empty={!s?.google?.biz_phone && !s?.google?.biz_website && !s?.google?.emails_found}
+            empty={!s?.google?.biz_phone && !s?.google?.biz_website && !s?.google?.emails_found && !s?.google?.biz_address}
           />
-          {/* Global */}
+
+          {/* Global Trade API */}
           <ScraperCard
             icon="🌐" title="Global Trade API" color="blue"
             items={[
               s?.global?.pages_scraped > 0 && { label: 'Pages scraped', value: `${s.global.pages_scraped}`, icon: 'text' },
               s?.global?.industry && { label: 'Industry', value: s.global.industry, icon: 'text' },
+              s?.global?.description && { label: 'Info', value: s.global.description, icon: 'text' },
+              s?.global?.website && { label: 'Website', value: s.global.website, icon: 'globe' },
+              s?.global?.address && { label: 'Address', value: s.global.address, icon: 'text' },
               s?.global?.emails_found > 0 && { label: 'Emails', value: `${s.global.emails_found} found`, icon: 'email' },
               s?.global?.phones_found > 0 && { label: 'Phones', value: `${s.global.phones_found} found`, icon: 'phone' },
             ].filter(Boolean)}
-            empty={!s?.global?.pages_scraped && !s?.global?.emails_found && !s?.global?.industry}
+            empty={!s?.global?.pages_scraped && !s?.global?.emails_found && !s?.global?.industry && !s?.global?.description}
+            noDataMsg={!s?.global ? 'Not yet processed' : 'No data found'}
           />
+
           {/* Apollo */}
           <div className="rounded-lg border p-3 bg-purple-50 border-purple-200">
             <div className="flex items-center gap-1.5 mb-2">
@@ -641,7 +863,7 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
         </div>
       </div>
 
-      {/* ── Manual Contact Editor ───────────────────────────────────────── */}
+      {/* ── Manual Contact Editor ────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
@@ -658,7 +880,6 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
         </div>
 
         <div className="space-y-2">
-          {/* Column headers */}
           <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1.5fr_auto_auto] gap-2 text-xs font-medium text-gray-500 px-1">
             <span className="flex items-center gap-1"><Mail className="w-3 h-3" /> Email</span>
             <span className="flex items-center gap-1"><Phone className="w-3 h-3" /> Phone</span>
@@ -701,10 +922,9 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
                 placeholder="https://linkedin.com/in/..."
                 className="px-2 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 w-full"
               />
-              {/* Human Verify toggle */}
               <button
                 onClick={() => toggleVerify(i)}
-                title={row.human_verified ? `Verified on ${row.human_verified_at ? new Date(row.human_verified_at).toLocaleDateString() : 'unknown date'} — click to unverify` : 'Mark as Human Verified'}
+                title={row.human_verified ? `Verified — click to unverify` : 'Mark as Human Verified'}
                 className={`flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium transition-all whitespace-nowrap ${
                   row.human_verified
                     ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm'
@@ -747,7 +967,7 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
   );
 }
 
-function ScraperCard({ icon, title, color, items, empty }) {
+function ScraperCard({ icon, title, color, items, empty, noDataMsg }) {
   const colors = {
     green: 'bg-green-50 border-green-200 text-green-800',
     blue: 'bg-blue-50 border-blue-200 text-blue-800',
@@ -756,10 +976,10 @@ function ScraperCard({ icon, title, color, items, empty }) {
     <div className={`rounded-lg border p-3 ${colors[color]}`}>
       <div className="flex items-center gap-1.5 mb-2">
         <span className="text-base">{icon}</span>
-        <span className={`text-xs font-semibold`}>{title}</span>
+        <span className="text-xs font-semibold">{title}</span>
       </div>
       {empty ? (
-        <p className="text-xs text-gray-400 italic">No data found</p>
+        <p className="text-xs text-gray-400 italic">{noDataMsg || 'No data found'}</p>
       ) : (
         <div className="space-y-1 text-xs text-gray-700">
           {items.map((item, i) => item && (
@@ -768,8 +988,12 @@ function ScraperCard({ icon, title, color, items, empty }) {
               {item.icon === 'phone' && <Phone className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" />}
               {item.icon === 'globe' && <Globe className="w-3 h-3 text-blue-600 flex-shrink-0 mt-0.5" />}
               {item.icon === 'text' && <span className="w-3 h-3 flex-shrink-0" />}
-              <span className="truncate" title={item.value}>
-                <span className="font-medium text-gray-500">{item.label}: </span>{item.value}
+              <span className="truncate break-all" title={item.value}>
+                <span className="font-medium text-gray-500">{item.label}: </span>
+                {item.icon === 'globe'
+                  ? <a href={item.value.startsWith('http') ? item.value : `https://${item.value}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{item.value}</a>
+                  : item.value
+                }
               </span>
             </div>
           ))}
@@ -846,7 +1070,7 @@ function EnrichStatus({ status, enrichedAt, humanVerifiedCount = 0 }) {
       {humanVerifiedCount > 0 && (
         <span className="flex items-center gap-1 text-xs text-emerald-600 font-semibold">
           <ShieldCheck className="w-3.5 h-3.5" />
-          {humanVerifiedCount} Human Verified
+          {humanVerifiedCount} Verified
         </span>
       )}
       {status === 'not_run' && (

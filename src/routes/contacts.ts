@@ -168,9 +168,13 @@ router.post('/enrich', async (req: Request, res: Response) => {
             },
             global: {
               success: globalStep.success !== false,
-              pages_scraped: globalStep.data?.stats?.scraped || 0,
-              emails_found: found.filter((c: any) => c.source === 'global').filter((c: any) => c.email).length,
-              phones_found: found.filter((c: any) => c.source === 'global').filter((c: any) => c.phone).length,
+              pages_scraped: globalStep.data?.stats?.scraped || globalStep.data?.pages_scraped || 0,
+              industry: (globalStep.data?.industry || '').replace(/[_,\s]+$/, '').trim() || null,
+              description: (globalStep.data?.description || '').replace(/[,\s]+$/, '').trim() || null,
+              website: globalStep.data?.website || null,
+              address: globalStep.data?.address || null,
+              emails_found: found.filter((c: any) => c.source === 'global_api').filter((c: any) => c.email).length,
+              phones_found: found.filter((c: any) => c.source === 'global_api').filter((c: any) => c.phone).length,
             },
             apollo: {
               success: apolloStep.success !== false,
