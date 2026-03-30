@@ -1,0 +1,100 @@
+=== SEQUENTIAL ENRICHMENT MODE - QUICK START ===
+
+NEW FLOW (Strict Sequential):
+------------------------------
+Google API → Global API → Brave Search → AI → Apollo → Hunter.io → Snov → ZeroBounce (MANDATORY)
+
+Each step receives output from previous step!
+
+
+SETUP:
+------
+1. Add to .env (MANDATORY):
+   ZEROBOUNCE_API_KEY=your_key_here
+   APOLLO_API_KEY=your_key_here
+   BRAVE_SEARCH_API_KEY=your_key_here
+   HUNTER_API_KEY=your_key_here
+   SNOV_API_KEY=your_key_here (optional)
+
+2. Build:
+   npm run build
+
+
+RUN SEQUENTIAL MODE:
+--------------------
+node -r dotenv/config dist/services/etl/pipeline.js \
+  10 10 10 10 \
+  --sequential \
+  dotenv_config_path=.env
+
+Args: extractLimit classifyLimit verifyLimit agentLimit --sequential
+
+
+WHAT HAPPENS:
+-------------
+For each buyer:
+  [1/8] Google Scraper → gets search results
+  [2/8] Global API → receives Google results
+  [3/8] Brave Search → receives Global results
+  [4/8] AI Analysis → receives Brave results
+  [5/8] Apollo → receives AI results
+  [6/8] Hunter.io → receives Apollo results
+  [7/8] Snov → receives Hunter results
+  [8/8] ZeroBounce → verifies ALL emails (MANDATORY!)
+
+Time: ~2 minutes per buyer
+
+
+MONITOR:
+--------
+tail -f logs/combined.log
+
+
+CHECK RESULTS:
+--------------
+mongo "mongodb://admin:Aaziko%21%40%23123@43.249.231.93:27017/?authSource=admin"
+use aaziko_trade
+db.buyer_profiles.findOne({ status: "enriched" })
+
+
+TWO MODES AVAILABLE:
+--------------------
+1. Sequential Mode (NEW):
+   --sequential flag
+   Strict API chain
+   ZeroBounce mandatory
+   ~2 min/buyer
+
+2. 4-Agent Mode (OLD):
+   No flag
+   Parallel processing
+   Faster
+   ~1 min/buyer
+
+
+IMPORTANT:
+----------
+⚠️  ZeroBounce is MANDATORY in sequential mode!
+⚠️  Pipeline fails if ZeroBounce API key missing
+⚠️  Each API receives previous API's output
+⚠️  Process one buyer at a time (sequential)
+
+
+LOGS TO WATCH:
+--------------
+✅ Google API: Found X results
+✅ Global API: Response received
+✅ Brave Search: Found X results
+✅ AI Analysis: Complete
+✅ Apollo API: Found X contacts
+✅ Hunter.io API: Found X emails
+✅ Snov API: Found X emails
+✅ ZeroBounce: Verified X emails
+✅ SUCCESS: Company enriched successfully
+
+
+DOCUMENTATION:
+--------------
+SEQUENTIAL_FLOW_GUIDE.md - Complete guide
+HOW_TO_RUN_PROJECT.md - General setup
+DUAL_API_INTEGRATION.md - API details

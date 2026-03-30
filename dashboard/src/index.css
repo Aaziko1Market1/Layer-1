@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@layer components {
+  .stat-card {
+    @apply bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-standard { @apply bg-blue-100 text-blue-800; }
+  .badge-premium { @apply bg-purple-100 text-purple-800; }
+  .badge-top { @apply bg-amber-100 text-amber-800; }
+  .badge-raw { @apply bg-gray-100 text-gray-700; }
+  .badge-extracted { @apply bg-sky-100 text-sky-700; }
+  .badge-classified { @apply bg-indigo-100 text-indigo-700; }
+  .badge-enriched { @apply bg-emerald-100 text-emerald-700; }
+  .badge-verified { @apply bg-green-100 text-green-800; }
+  .badge-ready { @apply bg-green-200 text-green-900 font-semibold; }
+  .btn-primary {
+    @apply bg-brand-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-white text-gray-700 px-4 py-2 rounded-lg font-medium border border-gray-300 hover:bg-gray-50 transition-colors;
+  }
+}

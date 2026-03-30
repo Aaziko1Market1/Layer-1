@@ -1,0 +1,106 @@
+=== ISSUES FOUND IN LOG - SUMMARY ===
+
+COMPANY: PT TRAKINDO UTAMA
+RESULT: 0 contacts found ❌
+TIME: 119.5 seconds
+
+CRITICAL ISSUES:
+----------------
+
+❌ ISSUE #1: AI JSON Parse Error
+   Problem: AI returns "industry": NOT_FOUND (without quotes)
+   Should be: "industry": "NOT_FOUND" (with quotes)
+   Impact: Classification fails
+   Priority: 🔴 HIGH
+
+❌ ISSUE #2: Wrong Domain Detected
+   Detected: signalhire.com (people search directory)
+   Should be: trakindo.co.id (actual company)
+   Impact: No contacts found (searching wrong domain)
+   Priority: 🔴 HIGH
+
+❌ ISSUE #3: Google Scraper API Error 500
+   Problem: API returned Internal Server Error
+   Impact: No Google search data
+   Priority: 🔴 HIGH
+
+❌ ISSUE #4: Apollo Requires Paid Plan
+   Problem: 403 error - free plan doesn't support contact search
+   Impact: No Apollo contacts
+   Priority: 🟡 MEDIUM
+
+❌ ISSUE #5: Snov API Not Configured
+   Problem: Missing SNOV_API_KEY in .env
+   Impact: No Snov contacts
+   Priority: 🟡 MEDIUM
+
+❌ ISSUE #6: Hunter Found 0 Contacts
+   Problem: Searched wrong domain (signalhire.com)
+   Impact: No Hunter contacts
+   Priority: 🔴 HIGH (caused by Issue #2)
+
+
+STEP-BY-STEP BREAKDOWN:
+------------------------
+
+✅ Step 1: Extraction - SUCCESS (1 company extracted)
+⚠️  Step 2: Classification - PARTIAL (JSON parse warning)
+⚠️  Step 3: Website Verification - WRONG DOMAIN (signalhire.com)
+❌ Step 4: Company Research - FAILED (Google API 500, AI parse error)
+❌ Step 5: Contact Discovery - FAILED (0 contacts, Apollo 403, Snov missing)
+✅ Step 6: Verification - SUCCESS (but nothing to verify)
+✅ Step 7: Intelligence - SUCCESS (but limited data)
+✅ Step 8: Storage - SUCCESS (but stored incomplete data)
+
+
+QUICK FIXES:
+------------
+
+Fix #1: Add signalhire.com to blacklist
+   File: src/services/verification/website-discovery.service.ts
+   Add: 'signalhire.com', 'rocketreach.com', 'contactout.com'
+
+Fix #2: Configure Snov API
+   File: .env
+   Add: SNOV_API_KEY=your_key_here
+
+Fix #3: Fix AI JSON parsing
+   File: src/services/ai/router.ts
+   Replace: NOT_FOUND with "NOT_FOUND"
+
+Fix #4: Check Google Scraper API
+   Test: curl -X POST "http://aaziko.google.202.47.115.6.sslip.io/search" \
+         -d "company_name=Tesla"
+
+Fix #5: Apollo - Upgrade or skip
+   Option 1: Upgrade to paid plan
+   Option 2: Skip Apollo, use Hunter + Snov
+
+
+COMMANDS TO FIX:
+----------------
+
+# 1. Delete bad data
+mongo "mongodb://admin:Aaziko%21%40%23123@43.249.231.93:27017/?authSource=admin"
+use aaziko_trade
+db.buyer_profiles.deleteOne({ companyName: "PT TRAKINDO UTAMA" })
+
+# 2. Add Snov API key
+echo "SNOV_API_KEY=your_key_here" >> .env
+
+# 3. Rebuild (after adding signalhire.com to blacklist)
+npm run build
+
+# 4. Re-run
+node -r dotenv/config dist/services/etl/pipeline.js 1 1 1 1 dotenv_config_path=.env
+
+
+EXPECTED AFTER FIX:
+-------------------
+✅ Domain: trakindo.co.id (NOT signalhire.com)
+✅ Contacts: 1-3 contacts (NOT empty)
+✅ Google data: Available
+✅ AI classification: Valid JSON
+
+
+See LOG_ANALYSIS_DETAILED.md for complete analysis.

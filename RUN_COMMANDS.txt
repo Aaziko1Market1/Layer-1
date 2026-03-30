@@ -1,0 +1,75 @@
+=== TT PROJECT - RUN COMMANDS ===
+
+FIRST TIME SETUP:
+------------------
+cd TT
+npm install
+cd dashboard && npm install && cd ..
+cp .env.example .env
+npm run build
+
+
+START PROJECT (2 Terminals):
+-----------------------------
+Terminal 1 - Backend:
+  cd TT
+  npm run dev
+
+Terminal 2 - Dashboard:
+  cd TT/dashboard
+  npm run dev
+
+
+RUN PIPELINE:
+-------------
+Option 1 - Via API:
+  curl -X POST http://localhost:4400/api/analytics/run-etl \
+    -H 'Content-Type: application/json' \
+    -d '{"limit": 10}'
+
+Option 2 - Via Command:
+  node -r dotenv/config dist/services/etl/pipeline.js dotenv_config_path=.env
+
+Option 3 - Via Dashboard:
+  Open http://localhost:4401 → Pipeline → Start Pipeline
+
+
+CHECK STATUS:
+-------------
+Health: curl http://localhost:4400/api/health
+Stats: curl http://localhost:4400/api/buyers/stats
+Logs: tail -f logs/combined.log
+Database: node check-trade-data.js
+
+
+TEST APIs:
+----------
+node test-google-scraper.js
+node test-global-api.js
+
+
+URLS:
+-----
+Backend: http://localhost:4400
+Dashboard: http://localhost:4401
+Google API: http://aaziko.google.202.47.115.6.sslip.io
+Global API: https://aaziko.global.202.47.115.6.sslip.io
+
+
+PIPELINE FLOW:
+--------------
+1. Extract from standard_port_data
+2. Classify with AI
+3. Verify websites
+4. Agent 1: Company Research
+   - Google Scraper API (your API)
+   - Global API (your API)
+   - Website scraping
+   - AI analysis
+5. Agent 2: Contact Discovery
+6. Agent 3: Verification
+7. Agent 4: Buyer Intelligence
+8. Deduplication
+9. Store in enriched_buyers
+
+Time: ~1-2 minutes per buyer
