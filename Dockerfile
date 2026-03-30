@@ -3,6 +3,9 @@ FROM node:20-alpine AS backend-builder
 
 WORKDIR /app
 
+# Force development so devDeps (typescript, etc.) are installed
+ENV NODE_ENV=development
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -15,6 +18,9 @@ RUN npm run build
 FROM node:20-alpine AS dashboard-builder
 
 WORKDIR /app/dashboard
+
+# Force development so devDeps (vite, etc.) are installed
+ENV NODE_ENV=development
 
 COPY dashboard/package.json dashboard/package-lock.json ./
 RUN npm ci
