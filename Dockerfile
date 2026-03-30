@@ -54,6 +54,8 @@ ENV PORT=4400
 
 EXPOSE 4400
 
+RUN mkdir -p /app/logs && chown node:node /app/logs
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q --spider http://localhost:4400/api/health || exit 1
 
