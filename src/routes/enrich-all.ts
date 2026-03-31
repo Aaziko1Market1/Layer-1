@@ -336,18 +336,9 @@ router.post('/start', async (req: Request, res: Response) => {
           }
           emptyBatchCount = 0;
 
-          // ── Wait if Serper credits exhausted — resume once user adds new key ──
-          if (serperStatus.paused) {
-            jobProgress.status = 'paused';
-            jobProgress.current_company = '⏸ Waiting for new Serper API key…';
-            logger.warn('[EnrichAll] Paused — waiting for new Serper API key from UI');
-            while (serperStatus.paused && jobRunning) {
-              await new Promise(r => setTimeout(r, 5000));
-            }
-            if (!jobRunning) break;
-            jobProgress.status = 'running';
-            jobProgress.current_company = '';
-            logger.info('[EnrichAll] Serper key updated — resuming enrichment');
+          // ── Log Serper status but CONTINUE enrichment with Global + Apollo ──
+          if (serperStatus.paused || serperStatus.creditsExhausted) {
+            logger.warn('[EnrichAll] Serper credits exhausted — continuing with Global API + Apollo (Google step will be skipped)');
           }
 
           // Run in parallel chunks

@@ -377,10 +377,10 @@ export default function Buyers() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-amber-900">
-                ⏸ Enrichment Paused — Serper.dev Credits Exhausted
+                ⚠ Serper.dev Credits Exhausted — Google Search Skipped
               </p>
               <p className="text-xs text-amber-700 mt-0.5">
-                Your Serper.dev API key has run out of credits. Enrichment is paused and waiting.
+                Your Serper.dev API key has run out of credits. Enrichment continues using Global Scraper + Apollo.
                 Add a new free API key from{' '}
                 <a href="https://serper.dev" target="_blank" rel="noopener noreferrer"
                   className="underline font-medium hover:text-amber-900">

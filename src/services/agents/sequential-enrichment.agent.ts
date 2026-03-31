@@ -442,11 +442,33 @@ export class SequentialEnrichmentAgent extends BaseAgent {
         ),
       ]);
 
+      // Check both fulfilled responses AND rejected errors for credit exhaustion
       const orgData = orgResp.status === 'fulfilled' ? orgResp.value.data : {};
-      if (orgData.statusCode === 400 || orgData.message?.toLowerCase().includes('credit')) {
+      const orgError = orgResp.status === 'rejected' ? orgResp.reason : null;
+
+      const isCreditError = (data: any, err: any): boolean => {
+        if (data?.statusCode === 400 || data?.statusCode === 402) return true;
+        if (data?.message?.toLowerCase().includes('credit')) return true;
+        if (data?.message?.toLowerCase().includes('not enough')) return true;
+        if (err?.response?.status === 400 || err?.response?.status === 402) {
+          const errData = err.response?.data;
+          if (errData?.message?.toLowerCase().includes('credit') || errData?.message?.toLowerCase().includes('not enough')) return true;
+        }
+        return false;
+      };
+
+      if (isCreditError(orgData, orgError)) {
         markSerperExhausted();
-        logger.warn(`🔑 Serper credits exhausted — add a new key to resume`);
+        logger.warn(`🔑 Serper credits exhausted — Google step skipped, continuing with Global + Apollo`);
         return { success: false, results: [], business_info: {} };
+      }
+
+      // Also check Places response for credit errors
+      const placesError = mapsResp.status === 'rejected' ? mapsResp.reason : null;
+      const placesData_ = mapsResp.status === 'fulfilled' ? mapsResp.value.data : {};
+      if (isCreditError(placesData_, placesError)) {
+        markSerperExhausted();
+        logger.warn(`🔑 Serper credits exhausted (Places) — Google step skipped`);
       }
 
       const raw = orgData.organic || [];
@@ -458,8 +480,7 @@ export class SequentialEnrichmentAgent extends BaseAgent {
 
       const kg = orgData.knowledgeGraph || {};
       const ab = orgData.answerBox || {};
-      const placesData = mapsResp.status === 'fulfilled' ? mapsResp.value.data : {};
-      const place = (placesData.places || [])[0] || {};
+      const place = (placesData_.places || [])[0] || {};
       const biz: any = {
         name: kg.title || place.title || ab.title || null,
         phone: place.phoneNumber || kg.attributes?.Phone || null,
@@ -474,8 +495,15 @@ export class SequentialEnrichmentAgent extends BaseAgent {
       logger.info(`✅ Serper.dev: ${results.length} results | phone=${biz.phone || 'none'} | website=${biz.website || 'none'}`);
       return { success: results.length > 0, results, count: results.length, business_info: biz };
     } catch (err: any) {
-      logger.warn(`⚠️ Serper.dev error: ${err.message}`);
-      return { success: false, error: err.message, results: [], business_info: {} };
+      const status = err.response?.status;
+      const errMsg = err.response?.data?.message || err.message;
+      if (status === 400 || status === 402 || errMsg?.toLowerCase().includes('credit') || errMsg?.toLowerCase().includes('not enough')) {
+        markSerperExhausted();
+        logger.warn(`🔑 Serper credits exhausted (catch) — Google step skipped, continuing with Global + Apollo`);
+      } else {
+        logger.warn(`⚠️ Serper.dev error: ${errMsg}`);
+      }
+      return { success: false, error: errMsg, results: [], business_info: {} };
     }
   }
 
