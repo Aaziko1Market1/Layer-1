@@ -306,6 +306,11 @@ export class SequentialEnrichmentAgent extends BaseAgent {
       }
     }
 
+    // Contacts extracted directly from MongoDB scraped page content
+    if (data._mongo_contacts && Array.isArray(data._mongo_contacts)) {
+      contacts.push(...data._mongo_contacts);
+    }
+
     return { contacts, domain };
   }
 
@@ -417,256 +422,73 @@ export class SequentialEnrichmentAgent extends BaseAgent {
 
   // ── API Calls ──
 
+  /** Serper.dev Google Search — primary search engine */
   private async callGoogleAPI(companyName: string, country: string): Promise<any> {
-    // ── Serper.dev (reliable Google Search API — no Selenium needed) ─────
-    if (env.SERPER_API_KEY) {
-      return this.callSerperAPI(companyName, country);
+    const key = process.env.SERPER_API_KEY || env.SERPER_API_KEY;
+    if (!key || serperStatus.creditsExhausted) {
+      logger.warn(`⚠️ Serper key missing or credits exhausted — skipping Google step`);
+      return { success: false, results: [], business_info: {} };
     }
-    // ── Fallback: legacy Selenium Google Scraper on our server ───────────
-    // Note: often returns 0 results because Google blocks the datacenter IP
     try {
-      const response = await axios.post(
-        'http://aaziko.google.43.249.231.93.sslip.io/api/search',
-        { company_name: companyName, country },
-        { headers: { 'Content-Type': 'application/json' }, timeout: 60000 }
-      );
-      const data = response.data || {};
-      if (data.error && !data.results?.length) throw new Error(data.error);
-      const raw = data.results || data.items || [];
-      const results = raw.map((item: any) => ({
-        title: item.title || item.name || '',
-        url: item.url || item.link || item.business_website || '',
-        description: item.description || item.snippet || '',
+      const query = `"${companyName}" ${country} contact email phone`;
+      const [orgResp, mapsResp] = await Promise.allSettled([
+        axios.post('https://google.serper.dev/search',
+          { q: query, num: 10, gl: 'us', hl: 'en' },
+          { headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' }, timeout: 12000 }
+        ),
+        axios.post('https://google.serper.dev/places',
+          { q: `${companyName} ${country}`, gl: 'us', hl: 'en' },
+          { headers: { 'X-API-KEY': key, 'Content-Type': 'application/json' }, timeout: 12000 }
+        ),
+      ]);
+
+      const orgData = orgResp.status === 'fulfilled' ? orgResp.value.data : {};
+      if (orgData.statusCode === 400 || orgData.message?.toLowerCase().includes('credit')) {
+        markSerperExhausted();
+        logger.warn(`🔑 Serper credits exhausted — add a new key to resume`);
+        return { success: false, results: [], business_info: {} };
+      }
+
+      const raw = orgData.organic || [];
+      const results = raw.map((r: any) => ({
+        title: r.title || '',
+        url: r.link || '',
+        description: r.snippet || '',
       }));
-      const biz = data.business_info || {};
-      if (biz.website && !results.find((r: any) => r.url === biz.website)) {
-        results.unshift({ title: companyName, url: biz.website, description: biz.description || '' });
-      }
-      if (biz.phone) results.push({ title: biz.name || companyName, url: '', description: `Phone: ${biz.phone}` });
-      logger.info(`✅ Google Scraper (Selenium): ${results.length} results, phone=${biz.phone || 'none'}`);
-      return { success: true, results, count: results.length, business_info: biz };
-    } catch (err: any) {
-      logger.warn(`⚠️ Google Scraper failed (add SERPER_API_KEY to fix): ${err.message}`);
-      return { success: false, error: err.message, results: [], business_info: {} };
-    }
-  }
 
-  /** Serper.dev — try first if credits available, else fall through to proxy scraper */
-  private async callSerperAPI(companyName: string, country: string): Promise<any> {
-    // Try Serper.dev first if key is set and credits not exhausted
-    if (env.SERPER_API_KEY && !serperStatus.creditsExhausted) {
-      try {
-        const query = `"${companyName}" ${country} contact email phone`;
-        const [orgResp, mapsResp] = await Promise.allSettled([
-          axios.post('https://google.serper.dev/search',
-            { q: query, num: 10, gl: 'us', hl: 'en' },
-            { headers: { 'X-API-KEY': process.env.SERPER_API_KEY || env.SERPER_API_KEY, 'Content-Type': 'application/json' }, timeout: 10000 }
-          ),
-          axios.post('https://google.serper.dev/places',
-            { q: `${companyName} ${country}`, gl: 'us', hl: 'en' },
-            { headers: { 'X-API-KEY': process.env.SERPER_API_KEY || env.SERPER_API_KEY, 'Content-Type': 'application/json' }, timeout: 10000 }
-          ),
-        ]);
-
-        const orgData = orgResp.status === 'fulfilled' ? orgResp.value.data : {};
-        // Detect credit exhaustion — mark globally and fall through to proxy
-        if (orgData.statusCode === 400 || orgData.message?.toLowerCase().includes('credit')) {
-          markSerperExhausted();
-          return this.callWebshareSearchAPI(companyName, country);
-        }
-
-        const raw = orgData.organic || [];
-        if (raw.length === 0) {
-          // No results from Serper — try proxy
-          return this.callWebshareSearchAPI(companyName, country);
-        }
-
-        const results = raw.map((r: any) => ({ title: r.title || '', url: r.link || '', description: r.snippet || '' }));
-        const kg = orgData.knowledgeGraph || {};
-        const ab = orgData.answerBox || {};
-        const placesData = mapsResp.status === 'fulfilled' ? mapsResp.value.data : {};
-        const place = (placesData.places || [])[0] || {};
-        const biz: any = {
-          name: kg.title || place.title || ab.title || null,
-          phone: place.phoneNumber || kg.attributes?.Phone || null,
-          address: place.address || kg.attributes?.Address || null,
-          website: place.website || kg.website || null,
-          rating: place.rating ? String(place.rating) : null,
-          description: kg.description || ab.snippet || null,
-        };
-        if (biz.website && !results.find((r: any) => r.url === biz.website)) {
-          results.unshift({ title: biz.name || companyName, url: biz.website, description: biz.description || '' });
-        }
-        logger.info(`✅ Serper.dev: ${results.length} results | phone=${biz.phone || 'none'} | website=${biz.website || 'none'}`);
-        return { success: true, results, count: results.length, business_info: biz };
-      } catch (err: any) {
-        logger.warn(`⚠️ Serper.dev error (${err.message}) — switching to proxy scraper`);
-      }
-    }
-    // Fall back to Webshare proxy scraper
-    return this.callWebshareSearchAPI(companyName, country);
-  }
-
-  /** Cached proxy list — refreshed every 10 minutes */
-  private static proxyCache: { proxies: any[]; fetchedAt: number } | null = null;
-
-  private async getWebshareProxy(): Promise<{ host: string; port: number; user: string; pass: string } | null> {
-    try {
-      const apiKey = env.WEBSHARE_API_KEY;
-      if (!apiKey) return null;
-      const now = Date.now();
-      if (!SequentialEnrichmentAgent.proxyCache || now - SequentialEnrichmentAgent.proxyCache.fetchedAt > 600_000) {
-        const resp = await axios.get(
-          'https://proxy.webshare.io/api/v2/proxy/list/?mode=direct&page=1&page_size=50',
-          { headers: { Authorization: `Token ${apiKey}` }, timeout: 6000 }
-        );
-        const proxies = (resp.data.results || []).filter((p: any) => p.valid !== false);
-        SequentialEnrichmentAgent.proxyCache = { proxies, fetchedAt: now };
-      }
-      const proxies = SequentialEnrichmentAgent.proxyCache.proxies;
-      if (!proxies.length) return null;
-      const p = proxies[Math.floor(Math.random() * proxies.length)];
-      return { host: p.proxy_address, port: p.port, user: p.username, pass: p.password };
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * DuckDuckGo Instant Answers + website-guess fallback.
-   * No API credits needed. Used when Serper.dev is out of credits.
-   */
-  private async callWebshareSearchAPI(companyName: string, country: string): Promise<any> {
-    const results: any[] = [];
-    const biz: any = { name: null, phone: null, address: null, website: null, rating: null };
-
-    // ── 1. DuckDuckGo Instant Answers API (free, no proxy, no auth) ──
-    try {
-      const q = encodeURIComponent(`${companyName} ${country}`);
-      const ddgResp = await axios.get(
-        `https://api.duckduckgo.com/?q=${q}&format=json&no_html=1&skip_disambig=1`,
-        { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 8000 }
-      );
-      const d = ddgResp.data;
-      if (d.AbstractURL) {
-        const url = d.AbstractURL;
-        try {
-          const host = new URL(url).hostname.replace(/^www\./, '');
-          if (!this.SKIP_DOMAINS.includes(host)) {
-            biz.website = url;
-            results.push({ title: d.Heading || companyName, url, description: d.AbstractText || '' });
-          }
-        } catch { /* skip */ }
-      }
-      if (d.OfficialSite && !biz.website) {
-        const url = d.OfficialSite;
-        try {
-          const host = new URL(url).hostname.replace(/^www\./, '');
-          if (!this.SKIP_DOMAINS.includes(host)) {
-            biz.website = url;
-            results.push({ title: companyName, url, description: '' });
-          }
-        } catch { /* skip */ }
-      }
-      if (d.RelatedTopics?.length > 0) {
-        for (const rt of d.RelatedTopics.slice(0, 5)) {
-          if (rt.FirstURL && !results.find((r: any) => r.url === rt.FirstURL)) {
-            results.push({ title: rt.Text?.substring(0, 80) || '', url: rt.FirstURL, description: rt.Text || '' });
-          }
-        }
-      }
-      logger.info(`DuckDuckGo IA: ${results.length} results, website=${biz.website || 'none'}`);
-    } catch (e: any) {
-      logger.warn(`⚠️ DuckDuckGo IA failed: ${e.message}`);
-    }
-
-    // ── 2. Company website guess via Webshare proxy ──────────────────
-    if (!biz.website) {
-      const guessedUrl = await this.guessCompanyWebsite(companyName, country);
-      if (guessedUrl) {
-        biz.website = guessedUrl;
-        results.push({ title: companyName, url: guessedUrl, description: '' });
-        logger.info(`🌐 Guessed website: ${guessedUrl}`);
-      }
-    }
-
-    logger.info(`✅ Free search: ${results.length} results | website=${biz.website || 'none'}`);
-    return { success: results.length > 0, results: results.slice(0, 10), count: results.length, business_info: biz };
-  }
-
-  /**
-   * Try to guess the company website by testing common domain patterns in parallel
-   * via Webshare rotating proxies.
-   */
-  private async guessCompanyWebsite(companyName: string, country: string): Promise<string | null> {
-    try {
-      const HttpsProxyAgent = require('https-proxy-agent').HttpsProxyAgent;
-      const proxy = await this.getWebshareProxy();
-      if (!proxy) return null;
-      const proxyUrl = `http://${proxy.user}:${proxy.pass}@${proxy.host}:${proxy.port}`;
-      const agent = new HttpsProxyAgent(proxyUrl);
-
-      // Clean company name for domain guess
-      const clean = companyName
-        .toLowerCase()
-        .replace(/\b(ltd|limited|llc|inc|corp|co|sdn\s*bhd|pvt|private|trading|international|global|group|industries|enterprise|company|&|and|the)\b/gi, '')
-        .replace(/[^a-z0-9\s]/g, '')
-        .trim()
-        .split(/\s+/)
-        .filter(w => w.length > 2)
-        .slice(0, 3)
-        .join('');
-
-      if (clean.length < 4) return null;
-
-      const countryTld: Record<string, string> = {
-        'INDIA': '.in', 'INDONESIA': '.id', 'MALAYSIA': '.my', 'OMAN': '.om',
-        'UAE': '.ae', 'SAUDI ARABIA': '.sa', 'BANGLADESH': '.bd', 'PAKISTAN': '.pk',
-        'SRI LANKA': '.lk', 'NIGERIA': '.ng', 'GHANA': '.gh', 'KENYA': '.ke',
-        'VIETNAM': '.vn', 'THAILAND': '.th', 'PHILIPPINES': '.ph', 'CHINA': '.cn',
+      const kg = orgData.knowledgeGraph || {};
+      const ab = orgData.answerBox || {};
+      const placesData = mapsResp.status === 'fulfilled' ? mapsResp.value.data : {};
+      const place = (placesData.places || [])[0] || {};
+      const biz: any = {
+        name: kg.title || place.title || ab.title || null,
+        phone: place.phoneNumber || kg.attributes?.Phone || null,
+        address: place.address || kg.attributes?.Address || null,
+        website: place.website || kg.website || null,
+        rating: place.rating ? String(place.rating) : null,
+        description: kg.description || ab.snippet || null,
       };
-      const localTld = countryTld[country?.toUpperCase()] || '';
-      const candidates = [
-        `https://www.${clean}.com`,
-        `https://${clean}.com`,
-        localTld ? `https://www.${clean}${localTld}` : null,
-        `https://www.${clean}.net`,
-      ].filter(Boolean) as string[];
-
-      // Check all candidates in parallel (max 3s each)
-      const checks = candidates.map(async (url) => {
-        try {
-          const resp = await axios.head(url, {
-            httpsAgent: agent, timeout: 3500, maxRedirects: 2,
-            validateStatus: (s) => s < 500,
-          });
-          if (resp.status >= 200 && resp.status < 400) {
-            const finalUrl = resp.request?.res?.responseUrl || url;
-            const host = new URL(finalUrl).hostname.replace(/^www\./, '');
-            if (!this.SKIP_DOMAINS.includes(host)) return finalUrl;
-          }
-        } catch { /* skip */ }
-        return null;
-      });
-
-      const results = await Promise.all(checks);
-      return results.find(r => r !== null) || null;
-    } catch {
-      return null;
+      if (biz.website && !results.find((r: any) => r.url === biz.website)) {
+        results.unshift({ title: biz.name || companyName, url: biz.website, description: biz.description || '' });
+      }
+      logger.info(`✅ Serper.dev: ${results.length} results | phone=${biz.phone || 'none'} | website=${biz.website || 'none'}`);
+      return { success: results.length > 0, results, count: results.length, business_info: biz };
+    } catch (err: any) {
+      logger.warn(`⚠️ Serper.dev error: ${err.message}`);
+      return { success: false, error: err.message, results: [], business_info: {} };
     }
   }
 
   private async callGlobalAPI(companyName: string, country: string, googleData: any): Promise<any> {
     try {
       // Pass Serper-found URL if available (skips Global API's internal Google search).
-      // When running in parallel, googleData may be null — fall back to keyword search.
       const serperWebsite = googleData?.business_info?.website ||
         (googleData?.results || []).find((r: any) => r.url?.startsWith('http'))?.url || null;
 
       const payload: Record<string, any> = {
         keyword: `${companyName} ${country} contact email phone`,
         num_websites: 2,
-        max_urls_per_site: 3,
+        max_urls_per_site: 4,
       };
       if (serperWebsite) {
         payload.urls = [serperWebsite];
@@ -683,7 +505,7 @@ export class SequentialEnrichmentAgent extends BaseAgent {
 
       logger.info(`Global API: task ${taskId} queued — polling for results`);
       const pollStart = Date.now();
-      const maxWait = 55000; // 55s max — website scraping can take 40-50s
+      const maxWait = 60000; // 60s max
       while (Date.now() - pollStart < maxWait) {
         await this.sleep(5000);
         try {
@@ -696,6 +518,14 @@ export class SequentialEnrichmentAgent extends BaseAgent {
             const result = s.result || {};
             const scraped = result.stats?.scraped || 0;
             logger.info(`✅ Global API: task done — scraped ${scraped} pages`);
+
+            // Query MongoDB for the actual scraped page content (emails, phones, text)
+            const mongoContacts = await this.extractContactsFromMongo(taskId, companyName);
+            if (mongoContacts.length > 0) {
+              logger.info(`📧 MongoDB: found ${mongoContacts.length} contacts from scraped pages`);
+              result._mongo_contacts = mongoContacts;
+            }
+
             return { success: scraped > 0, data: result, task_id: taskId };
           }
         } catch { /* poll again */ }
@@ -708,46 +538,96 @@ export class SequentialEnrichmentAgent extends BaseAgent {
     }
   }
 
-  private async callBraveSearchAPI(companyName: string, country: string): Promise<any> {
-    if (!env.BRAVE_SEARCH_API_KEY) return { success: false, error: 'No API key', results: [] };
+  /**
+   * Query jaimish_data.global_scraper_content for pages scraped in this task,
+   * extract emails / phones / links from their full text content.
+   */
+  private async extractContactsFromMongo(taskId: string, companyName: string): Promise<ContactDetail[]> {
+    const contacts: ContactDetail[] = [];
     try {
-      const response = await axios.get('https://api.search.brave.com/res/v1/web/search', {
-        params: { q: `"${companyName}" ${country} company contact email`, count: 5 },
-        headers: { 'Accept': 'application/json', 'X-Subscription-Token': env.BRAVE_SEARCH_API_KEY },
-        timeout: 10000,
-      });
-      const results = response.data.web?.results || [];
-      logger.info(`✅ Brave Search: ${results.length} results`);
-      return { success: true, results, count: results.length };
-    } catch (err: any) {
-      logger.error(`❌ Brave Search failed: ${err.message}`);
-      return { success: false, error: err.message, results: [] };
+      const { MongoClient } = require('mongodb');
+      const mongoUri = process.env.MONGODB_URI || env.MONGODB_URI;
+      const client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 5000 });
+      await client.connect();
+      const db = client.db('jaimish_data');
+
+      // Find all docs scraped recently for this company (by keyword match)
+      const keywordRx = new RegExp(
+        companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split(/\s+/).slice(0, 3).join('.*'),
+        'i'
+      );
+      const docs = await db.collection('global_scraper_content')
+        .find({ keyword: keywordRx }, { projection: { content: 1, metadata: 1, domain: 1, url: 1 } })
+        .sort({ created_at: -1 })
+        .limit(5)
+        .toArray();
+
+      await client.close();
+
+      const seen = new Set<string>();
+      for (const doc of docs) {
+        // Flatten all text from the document
+        const textParts: string[] = [];
+        const c = doc.content || {};
+
+        if (Array.isArray(c.paragraphs)) textParts.push(...c.paragraphs.filter(Boolean));
+        if (Array.isArray(c.headings)) textParts.push(...c.headings.filter(Boolean));
+        if (Array.isArray(c.lists)) textParts.push(...(c.lists.flat ? c.lists.flat() : c.lists).filter(Boolean));
+        if (doc.metadata?.description) textParts.push(doc.metadata.description);
+        if (doc.metadata?.keywords) textParts.push(doc.metadata.keywords);
+
+        // Also search links for mailto: and tel:
+        if (Array.isArray(c.links)) {
+          for (const link of c.links) {
+            const href = typeof link === 'string' ? link : link?.href || '';
+            if (href.startsWith('mailto:')) {
+              const email = href.replace('mailto:', '').split('?')[0].toLowerCase().trim();
+              if (email && !seen.has(email) && this.isRealEmail(email)) {
+                seen.add(email);
+                contacts.push({ name: null, title: null, email, phone: null, linkedin: null, website: null, address: null, source: 'global_api' });
+              }
+            }
+            if (href.startsWith('tel:')) {
+              const phone = href.replace('tel:', '').trim();
+              if (phone && phone.length >= 7) {
+                contacts.push({ name: null, title: null, email: null, phone, linkedin: null, website: null, address: null, source: 'global_api' });
+              }
+            }
+          }
+        }
+
+        const fullText = textParts.join(' ');
+        if (!fullText.trim()) continue;
+
+        // Extract emails
+        const emails = fullText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+        for (const e of emails) {
+          const email = e.toLowerCase();
+          if (!seen.has(email) && this.isRealEmail(email)) {
+            seen.add(email);
+            contacts.push({ name: null, title: null, email, phone: null, linkedin: null, website: null, address: null, source: 'global_api' });
+          }
+        }
+
+        // Extract phones
+        const phones = fullText.match(/\+?\d[\d\s\-().]{7,15}\d/g) || [];
+        for (const ph of phones) {
+          const digits = ph.replace(/\D/g, '');
+          if (digits.length >= 7 && digits.length <= 15) {
+            contacts.push({ name: null, title: null, email: null, phone: ph.replace(/\s+/g, ''), linkedin: null, website: null, address: null, source: 'global_api' });
+          }
+        }
+
+        // Website from domain
+        if (doc.domain && !contacts.find(c2 => c2.website)) {
+          const website = `https://www.${doc.domain}`;
+          contacts.push({ name: null, title: null, email: null, phone: null, linkedin: null, website, address: null, source: 'global_api' });
+        }
+      }
+    } catch (e: any) {
+      logger.warn(`⚠️ MongoDB contact extraction failed: ${e.message}`);
     }
-  }
-
-  private async callAIAnalysis(companyName: string, country: string): Promise<any> {
-    try {
-      const { aiGenerate } = await import('../ai/router');
-      const response = await aiGenerate({
-        prompt: `Research this company for B2B outreach. Company: "${companyName}", Country: ${country}.
-Respond in JSON: { "likely_domain": "best guess domain", "industry": "industry", "business_type": "manufacturer|distributor|retailer|trading", "search_tips": "keywords to find their website/contacts" }`,
-        tier: 'standard',
-        temperature: 0.2,
-        maxTokens: 512,
-      });
-
-      let parsed: any = { raw: response.content };
-      try {
-        const match = response.content.match(/\{[\s\S]*\}/);
-        if (match) parsed = JSON.parse(match[0]);
-      } catch { /* use raw */ }
-
-      logger.info(`✅ AI Analysis: ${parsed.likely_domain || 'no domain guess'}`);
-      return { success: true, analysis: parsed, model: response.model };
-    } catch (err: any) {
-      logger.warn(`⚠️ AI Analysis failed: ${err.message}`);
-      return { success: false, error: err.message, analysis: { company: companyName, country } };
-    }
+    return contacts;
   }
 
   /**
