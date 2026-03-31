@@ -495,8 +495,9 @@ export class SequentialEnrichmentAgent extends BaseAgent {
         logger.info(`Global API: using Serper URL → ${serperWebsite}`);
       }
 
+      const globalBase = process.env.GLOBAL_SCRAPER_URL || env.GLOBAL_SCRAPER_URL;
       const submitResp = await axios.post(
-        'http://aaziko.global.43.249.231.93.sslip.io/api/v1/scrape/global',
+        `${globalBase}/api/v1/scrape/global`,
         payload,
         { headers: { 'Content-Type': 'application/json' }, timeout: 15000 }
       );
@@ -510,7 +511,7 @@ export class SequentialEnrichmentAgent extends BaseAgent {
         await this.sleep(5000);
         try {
           const statusResp = await axios.get(
-            `http://aaziko.global.43.249.231.93.sslip.io/api/v1/task/${taskId}`,
+            `${globalBase}/api/v1/task/${taskId}`,
             { timeout: 8000 }
           );
           const s = statusResp.data;

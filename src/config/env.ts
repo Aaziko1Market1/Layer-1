@@ -43,10 +43,13 @@ const envSchema = z.object({
   QWEN_235B_API_KEY: z.string().default(''),
   QWEN_235B_ENDPOINT: z.string().default('https://api.siliconflow.cn/v1'),
 
-  // Search API (Serper.dev — free Google Search API replacing broken Selenium scraper)
+  // Search API (Serper.dev — free Google Search API)
   SERPER_API_KEY: z.string().default(''),
 
-  // Webshare rotating proxies (for Google/DuckDuckGo HTML scraping when Serper credits run out)
+  // Global scraper internal URL (Docker network direct IP avoids DNS flakiness)
+  GLOBAL_SCRAPER_URL: z.string().default('http://aaziko.global.43.249.231.93.sslip.io'),
+
+  // Webshare rotating proxies
   WEBSHARE_API_KEY: z.string().default(''),
 
   // Enrichment APIs
