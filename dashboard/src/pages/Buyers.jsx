@@ -261,6 +261,41 @@ export default function Buyers() {
               />
             </div>
           </div>
+
+          {/* Serper.dev API Key */}
+          <div className="border border-purple-200 rounded-lg p-3 bg-white space-y-2">
+            <div className="flex items-center gap-2">
+              <Key className="w-4 h-4 text-purple-500 flex-shrink-0" />
+              <span className="text-xs font-semibold text-purple-900">Serper.dev API Key</span>
+              <span className="text-xs text-gray-400">(Google Search — 2,500 free/month at serper.dev)</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Paste your Serper.dev API key here to update…"
+                value={newSerperKey}
+                onChange={e => setNewSerperKey(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSerperKeySubmit()}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+              />
+              <button
+                onClick={handleSerperKeySubmit}
+                disabled={serperKeySaving || !newSerperKey.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+              >
+                {serperKeySaving
+                  ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                  : <><Save className="w-3.5 h-3.5" /> Save Key</>
+                }
+              </button>
+            </div>
+            {serperKeyMsg && (
+              <p className={`text-xs font-medium ${serperKeyMsg.startsWith('✅') ? 'text-green-700' : 'text-red-600'}`}>
+                {serperKeyMsg}
+              </p>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <p className="text-xs text-gray-500">Skips already-enriched buyers. Can be stopped anytime.</p>
             <button
