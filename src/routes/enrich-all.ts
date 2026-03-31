@@ -8,6 +8,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 import { logger } from '../config/logger';
 import { env } from '../config/env';
 import { SequentialEnrichmentAgent } from '../services/agents/sequential-enrichment.agent';
+import { serperStatus, clearSerperPause, persistSerperKey } from '../state/serper-status';
 
 const router = Router();
 const MONGO_URI = env.MONGODB_URI;
@@ -46,7 +47,26 @@ router.get('/progress', (_req: Request, res: Response) => {
   const pct = jobProgress.total > 0
     ? Math.round((jobProgress.processed / jobProgress.total) * 100)
     : 0;
-  res.json({ ...jobProgress, percent: pct });
+  res.json({
+    ...jobProgress,
+    percent: pct,
+    serper_paused: serperStatus.paused,
+    serper_reason: serperStatus.reason,
+    serper_paused_at: serperStatus.pausedAt,
+  });
+});
+
+// POST /api/enrich-all/serper-key  — update key and resume enrichment
+router.post('/serper-key', (req: Request, res: Response) => {
+  const { key } = req.body as { key?: string };
+  if (!key || typeof key !== 'string' || key.trim().length < 10) {
+    return res.status(400).json({ error: 'Invalid API key' }) as any;
+  }
+  const trimmed = key.trim();
+  persistSerperKey(trimmed);
+  clearSerperPause();
+  logger.info(`🔑 Serper.dev API key updated by user — enrichment can resume`);
+  res.json({ ok: true, message: 'Serper API key updated. Enrichment will resume on next batch.' });
 });
 
 // POST /api/enrich-all/stop
@@ -315,6 +335,20 @@ router.post('/start', async (req: Request, res: Response) => {
             continue;
           }
           emptyBatchCount = 0;
+
+          // ── Wait if Serper credits exhausted — resume once user adds new key ──
+          if (serperStatus.paused) {
+            jobProgress.status = 'paused';
+            jobProgress.current_company = '⏸ Waiting for new Serper API key…';
+            logger.warn('[EnrichAll] Paused — waiting for new Serper API key from UI');
+            while (serperStatus.paused && jobRunning) {
+              await new Promise(r => setTimeout(r, 5000));
+            }
+            if (!jobRunning) break;
+            jobProgress.status = 'running';
+            jobProgress.current_company = '';
+            logger.info('[EnrichAll] Serper key updated — resuming enrichment');
+          }
 
           // Run in parallel chunks
           for (let i = 0; i < buyers.length; i += CONCURRENCY) {

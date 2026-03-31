@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, RefreshCw,
   CheckCircle2, Clock, Play, Square, AlertCircle, X,
   ChevronDown, ChevronUp, User, Building2, Plus, Trash2, Save, ShieldCheck,
-  Filter, ArrowUpDown, ArrowUp, ArrowDown, Tag, Package, StickyNote,
+  Filter, ArrowUpDown, ArrowUp, ArrowDown, Tag, Package, StickyNote, Key,
 } from 'lucide-react';
 import { fetchBuyers, runEnrichment } from '../api';
 import api from '../api';
@@ -36,13 +36,19 @@ export default function Buyers() {
   const [countryFilter, setCountryFilter] = useState('');
   const pollRef = useRef(null);
 
+  // Serper key management
+  const [newSerperKey, setNewSerperKey] = useState('');
+  const [serperKeySaving, setSerperKeySaving] = useState(false);
+  const [serperKeyMsg, setSerperKeyMsg] = useState('');
+
   const LIMIT = 50;
 
   const pollProgress = useCallback(async () => {
     try {
       const res = await api.get('/enrich-all/progress');
       setJobProgress(res.data);
-      if (res.data.status === 'running') {
+      // Keep polling while running OR while paused waiting for Serper key
+      if (res.data.status === 'running' || (res.data.status === 'paused' && res.data.serper_paused)) {
         pollRef.current = setTimeout(pollProgress, 3000);
       } else {
         if (pollRef.current) clearTimeout(pollRef.current);
@@ -144,6 +150,23 @@ export default function Buyers() {
   const page = Math.floor(skip / LIMIT) + 1;
   const totalPages = Math.ceil(total / LIMIT);
   const isJobRunning = jobProgress?.status === 'running';
+  const isSerperPaused = jobProgress?.serper_paused === true;
+
+  const handleSerperKeySubmit = async () => {
+    if (!newSerperKey.trim()) return;
+    setSerperKeySaving(true);
+    setSerperKeyMsg('');
+    try {
+      await api.post('/enrich-all/serper-key', { key: newSerperKey.trim() });
+      setSerperKeyMsg('✅ API key saved! Enrichment will resume automatically.');
+      setNewSerperKey('');
+      setTimeout(pollProgress, 1000);
+    } catch (e) {
+      setSerperKeyMsg('❌ Failed to save key. Please try again.');
+    } finally {
+      setSerperKeySaving(false);
+    }
+  };
 
   const activeFiltersCount = [
     filters.productSearch, filters.country, filters.category,
@@ -307,6 +330,65 @@ export default function Buyers() {
               Currently: <span className="font-medium">{jobProgress.current_company}</span>
             </p>
           )}
+        </div>
+      )}
+
+      {/* ── Serper API Credits Exhausted Banner ─────────────────────────── */}
+      {isSerperPaused && (
+        <div className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
+              <Key className="w-5 h-5 text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-amber-900">
+                ⏸ Enrichment Paused — Serper.dev Credits Exhausted
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Your Serper.dev API key has run out of credits. Enrichment is paused and waiting.
+                Add a new free API key from{' '}
+                <a href="https://serper.dev" target="_blank" rel="noopener noreferrer"
+                  className="underline font-medium hover:text-amber-900">
+                  serper.dev
+                </a>{' '}
+                (2,500 free searches/month) to resume.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 items-center">
+            <div className="relative flex-1">
+              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Paste new Serper.dev API key here…"
+                value={newSerperKey}
+                onChange={e => setNewSerperKey(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSerperKeySubmit()}
+                className="w-full pl-9 pr-3 py-2 border border-amber-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+              />
+            </div>
+            <button
+              onClick={handleSerperKeySubmit}
+              disabled={serperKeySaving || !newSerperKey.trim()}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+            >
+              {serperKeySaving ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+              {serperKeySaving ? 'Saving…' : 'Save & Resume'}
+            </button>
+          </div>
+          {serperKeyMsg && (
+            <p className={`text-xs font-medium ${serperKeyMsg.startsWith('✅') ? 'text-green-700' : 'text-red-600'}`}>
+              {serperKeyMsg}
+            </p>
+          )}
+          <p className="text-xs text-amber-600">
+            💡 Tip: Sign up for a new free account at serper.dev to get 2,500 more searches/month.
+            Each account gets free credits on first signup.
+          </p>
         </div>
       )}
 

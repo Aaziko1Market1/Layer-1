@@ -1,6 +1,7 @@
 import { BaseAgent } from './base.agent';
 import { logger } from '../../config/logger';
 import { env } from '../../config/env';
+import { markSerperExhausted, serperStatus } from '../../state/serper-status';
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
@@ -452,25 +453,25 @@ export class SequentialEnrichmentAgent extends BaseAgent {
 
   /** Serper.dev — try first if credits available, else fall through to proxy scraper */
   private async callSerperAPI(companyName: string, country: string): Promise<any> {
-    // Try Serper.dev first if key is set
-    if (env.SERPER_API_KEY) {
+    // Try Serper.dev first if key is set and credits not exhausted
+    if (env.SERPER_API_KEY && !serperStatus.creditsExhausted) {
       try {
         const query = `"${companyName}" ${country} contact email phone`;
         const [orgResp, mapsResp] = await Promise.allSettled([
           axios.post('https://google.serper.dev/search',
             { q: query, num: 10, gl: 'us', hl: 'en' },
-            { headers: { 'X-API-KEY': env.SERPER_API_KEY, 'Content-Type': 'application/json' }, timeout: 10000 }
+            { headers: { 'X-API-KEY': process.env.SERPER_API_KEY || env.SERPER_API_KEY, 'Content-Type': 'application/json' }, timeout: 10000 }
           ),
           axios.post('https://google.serper.dev/places',
             { q: `${companyName} ${country}`, gl: 'us', hl: 'en' },
-            { headers: { 'X-API-KEY': env.SERPER_API_KEY, 'Content-Type': 'application/json' }, timeout: 10000 }
+            { headers: { 'X-API-KEY': process.env.SERPER_API_KEY || env.SERPER_API_KEY, 'Content-Type': 'application/json' }, timeout: 10000 }
           ),
         ]);
 
         const orgData = orgResp.status === 'fulfilled' ? orgResp.value.data : {};
-        // If no credits, orgData will have an error message — fall through to proxy
-        if (orgData.statusCode === 400 || (orgData.organic?.length === 0 && orgData.message?.includes('credit'))) {
-          logger.warn('⚠️ Serper.dev out of credits — switching to proxy scraper');
+        // Detect credit exhaustion — mark globally and fall through to proxy
+        if (orgData.statusCode === 400 || orgData.message?.toLowerCase().includes('credit')) {
+          markSerperExhausted();
           return this.callWebshareSearchAPI(companyName, country);
         }
 
