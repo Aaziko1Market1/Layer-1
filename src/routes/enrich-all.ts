@@ -176,7 +176,7 @@ router.post('/start', async (req: Request, res: Response) => {
             companyName: buyer.name,
             normalizedName: buyer.name,
             country: buyer.country || 'Unknown',
-            domain: null,
+            domain: buyer.domain || buyer.scrapedData?.general?.detailed_content?.[0]?.domain || null,
             tier: 'standard',
             industry: null, subIndustry: null,
             products: buyer.products || [],

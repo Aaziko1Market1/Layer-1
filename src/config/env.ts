@@ -46,6 +46,9 @@ const envSchema = z.object({
   // Search API (Serper.dev — free Google Search API replacing broken Selenium scraper)
   SERPER_API_KEY: z.string().default(''),
 
+  // Webshare rotating proxies (for Google/DuckDuckGo HTML scraping when Serper credits run out)
+  WEBSHARE_API_KEY: z.string().default(''),
+
   // Enrichment APIs
   APOLLO_API_KEY: z.string().default(''),
   HUNTER_API_KEY: z.string().default(''),
