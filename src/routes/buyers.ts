@@ -319,6 +319,91 @@ router.patch('/:id/contacts', async (req: Request, res: Response) => {
   }
 });
 
+// PATCH /api/buyers/:id/scraper — manually edit scraper results
+router.patch('/:id/scraper', async (req: Request, res: Response) => {
+  const { client, db } = await getDhruval();
+  try {
+    const { google, global: globalData, apollo } = req.body as {
+      google?: { biz_phone?: string; biz_website?: string; biz_address?: string; biz_rating?: string };
+      global?: { website?: string; address?: string; industry?: string; description?: string };
+      apollo?: { domain?: string; org_phone?: string; org_linkedin?: string; people?: any[] };
+    };
+
+    let filter: any;
+    try { filter = { _id: new ObjectId(req.params.id) }; }
+    catch { filter = { name: req.params.id }; }
+
+    const buyer = await db.collection('shortlist_buyer_seller').findOne(filter);
+    if (!buyer) return res.status(404).json({ error: 'Buyer not found' }) as any;
+
+    const existing = buyer.enrichment_steps_summary || {};
+    const updated: any = { ...existing };
+
+    if (google) {
+      updated.google = {
+        ...(existing.google || {}),
+        biz_phone: google.biz_phone?.trim() || existing.google?.biz_phone || null,
+        biz_website: google.biz_website?.trim() || existing.google?.biz_website || null,
+        biz_address: google.biz_address?.trim() || existing.google?.biz_address || null,
+        biz_rating: google.biz_rating?.trim() || existing.google?.biz_rating || null,
+      };
+    }
+
+    if (globalData) {
+      updated.global = {
+        ...(existing.global || {}),
+        website: globalData.website?.trim() || existing.global?.website || null,
+        address: globalData.address?.trim() || existing.global?.address || null,
+        industry: globalData.industry?.trim() || existing.global?.industry || null,
+        description: globalData.description?.trim() || existing.global?.description || null,
+      };
+    }
+
+    if (apollo) {
+      updated.apollo = {
+        ...(existing.apollo || {}),
+        domain: apollo.domain?.trim() || existing.apollo?.domain || null,
+        org_phone: apollo.org_phone?.trim() || existing.apollo?.org_phone || null,
+        org_linkedin: apollo.org_linkedin?.trim() || existing.apollo?.org_linkedin || null,
+      };
+      if (Array.isArray(apollo.people)) {
+        updated.apollo.people = apollo.people.filter(p => p.name || p.title || p.linkedin).map(p => ({
+          name: p.name?.trim() || null,
+          title: p.title?.trim() || null,
+          linkedin: p.linkedin?.trim() || null,
+        }));
+      }
+    }
+
+    const domainToSet = updated.apollo?.domain || updated.google?.biz_website || updated.global?.website || buyer.domain_found;
+    let cleanDomain = domainToSet;
+    if (cleanDomain) {
+      try { cleanDomain = new URL(cleanDomain.startsWith('http') ? cleanDomain : `https://${cleanDomain}`).hostname.replace(/^www\./, ''); } catch { /* keep as-is */ }
+    }
+
+    await db.collection('shortlist_buyer_seller').updateOne(filter, {
+      $set: {
+        enrichment_steps_summary: updated,
+        ...(cleanDomain ? { domain_found: cleanDomain } : {}),
+        scraper_edited_at: new Date(),
+      },
+    });
+
+    const summary = mergeScraperSummaries(updated, buyer.scrapedData ? {
+      google: buyer.scrapedData.google || {},
+      global: buyer.scrapedData.global || {},
+      apollo: buyer.scrapedData.apollo || {},
+    } : null);
+
+    res.json({ ok: true, scraperSummary: summary });
+  } catch (err: any) {
+    logger.error('Save scraper data failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  } finally {
+    await client.close();
+  }
+});
+
 // PATCH /api/buyers/:id/notes — save a note for this buyer
 router.patch('/:id/notes', async (req: Request, res: Response) => {
   const { client, db } = await getDhruval();

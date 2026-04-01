@@ -791,10 +791,60 @@ function ColHeader({ label, field, filters, setSort, colKey, openColFilter, setO
 
 // ── Scraper Details Panel + Manual Editor ────────────────────────────────────
 const EMPTY_ROW = () => ({ email: '', phone: '', name: '', position: '', linkedin: '', source: 'manual', human_verified: false, human_verified_at: null });
+const EMPTY_PERSON = () => ({ name: '', title: '', linkedin: '' });
 
 function ScraperDetailsPanel({ buyer, onSaved }) {
   const s = buyer.scraperSummary;
 
+  // ── Scraper edit state ──
+  const [editingScraper, setEditingScraper] = useState(false);
+  const [savingScraper, setSavingScraper] = useState(false);
+  const [scraperMsg, setScraperMsg] = useState('');
+
+  const [gPhone, setGPhone] = useState(s?.google?.biz_phone || '');
+  const [gWebsite, setGWebsite] = useState(s?.google?.biz_website || '');
+  const [gAddress, setGAddress] = useState(s?.google?.biz_address || '');
+  const [gRating, setGRating] = useState(s?.google?.biz_rating || '');
+
+  const [glWebsite, setGlWebsite] = useState(s?.global?.website || '');
+  const [glAddress, setGlAddress] = useState(s?.global?.address || '');
+  const [glIndustry, setGlIndustry] = useState(s?.global?.industry || '');
+  const [glDescription, setGlDescription] = useState(s?.global?.description || '');
+
+  const [apDomain, setApDomain] = useState(s?.apollo?.domain || '');
+  const [apPhone, setApPhone] = useState(s?.apollo?.org_phone || '');
+  const [apLinkedin, setApLinkedin] = useState(s?.apollo?.org_linkedin || '');
+  const [apPeople, setApPeople] = useState(
+    s?.apollo?.people?.length > 0 ? s.apollo.people.map(p => ({ name: p.name || '', title: p.title || '', linkedin: p.linkedin || '' })) : [EMPTY_PERSON()]
+  );
+
+  const updatePerson = (i, field, val) => {
+    setApPeople(prev => prev.map((p, idx) => idx === i ? { ...p, [field]: val } : p));
+    setScraperMsg('');
+  };
+  const addPerson = () => setApPeople(prev => [...prev, EMPTY_PERSON()]);
+  const removePerson = (i) => setApPeople(prev => prev.filter((_, idx) => idx !== i));
+
+  const handleSaveScraper = async () => {
+    setSavingScraper(true);
+    setScraperMsg('');
+    try {
+      const res = await api.patch(`/buyers/${buyer._id}/scraper`, {
+        google: { biz_phone: gPhone, biz_website: gWebsite, biz_address: gAddress, biz_rating: gRating },
+        global: { website: glWebsite, address: glAddress, industry: glIndustry, description: glDescription },
+        apollo: { domain: apDomain, org_phone: apPhone, org_linkedin: apLinkedin, people: apPeople },
+      });
+      setScraperMsg('✓ Scraper data saved');
+      setEditingScraper(false);
+      if (res.data.scraperSummary) onSaved?.({ scraperSummary: res.data.scraperSummary });
+    } catch (err) {
+      setScraperMsg('Error: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSavingScraper(false);
+    }
+  };
+
+  // ── Contact rows state ──
   const buildRows = () => {
     const rows = [];
     const cd = buyer.contact_details || [];
@@ -897,102 +947,221 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
     }
   };
 
+  const scraperInput = "px-2 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-brand-400 w-full bg-white";
+
   return (
     <div className="space-y-4">
       {/* Scraper results row */}
       <div>
-        <h4 className="text-xs font-semibold text-blue-800 uppercase tracking-wide flex items-center gap-2 mb-2">
-          <Building2 className="w-3.5 h-3.5" /> Scraper Results — {buyer.name}
-        </h4>
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-xs font-semibold text-blue-800 uppercase tracking-wide flex items-center gap-2">
+            <Building2 className="w-3.5 h-3.5" /> Scraper Results — {buyer.name}
+          </h4>
+          <div className="flex items-center gap-2">
+            {scraperMsg && (
+              <span className={`text-xs font-medium ${scraperMsg.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>{scraperMsg}</span>
+            )}
+            {editingScraper ? (
+              <>
+                <button onClick={() => { setEditingScraper(false); setScraperMsg(''); }}
+                  className="flex items-center gap-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors">
+                  <X className="w-3 h-3" /> Cancel
+                </button>
+                <button onClick={handleSaveScraper} disabled={savingScraper}
+                  className="flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                  <Save className="w-3 h-3" /> {savingScraper ? 'Saving...' : 'Save Scraper Data'}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditingScraper(true)}
+                className="flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                Edit Scraper Data
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* Google */}
-          <ScraperCard
-            icon="🔍" title="Google Scraper" color="green"
-            items={[
-              s?.google?.biz_phone && { label: 'Phone', value: s.google.biz_phone, icon: 'phone' },
-              s?.google?.biz_website && { label: 'Website', value: s.google.biz_website, icon: 'globe' },
-              s?.google?.biz_address && { label: 'Address', value: s.google.biz_address, icon: 'text' },
-              s?.google?.biz_rating && { label: 'Rating', value: `⭐ ${s.google.biz_rating}`, icon: 'text' },
-              s?.google?.emails_found > 0 && { label: 'Emails from search', value: `${s.google.emails_found} found`, icon: 'email' },
-              s?.google?.results > 0 && { label: 'Search results', value: `${s.google.results}`, icon: 'text' },
-            ].filter(Boolean)}
-            empty={!s?.google?.biz_phone && !s?.google?.biz_website && !s?.google?.emails_found && !s?.google?.biz_address}
-          />
 
-          {/* General Scraper */}
-          <ScraperCard
-            icon="🌐" title="General" color="blue"
-            items={[
-              s?.global?.pages_scraped > 0 && { label: 'Pages scraped', value: `${s.global.pages_scraped}`, icon: 'text' },
-              s?.global?.industry && { label: 'Industry', value: s.global.industry, icon: 'text' },
-              s?.global?.description && { label: 'Info', value: s.global.description, icon: 'text' },
-              s?.global?.website && { label: 'Website', value: s.global.website, icon: 'globe' },
-              s?.global?.address && { label: 'Address', value: s.global.address, icon: 'text' },
-              s?.global?.emails_found > 0 && { label: 'Emails', value: `${s.global.emails_found} found`, icon: 'email' },
-              s?.global?.phones_found > 0 && { label: 'Phones', value: `${s.global.phones_found} found`, icon: 'phone' },
-            ].filter(Boolean)}
-            empty={!s?.global?.pages_scraped && !s?.global?.emails_found && !s?.global?.industry && !s?.global?.description}
-            noDataMsg={!s?.global ? 'Not yet processed' : 'No data found'}
-          />
+          {/* ── Google Scraper Card ── */}
+          <div className="rounded-lg border p-3 bg-green-50 border-green-200">
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="text-base">🔍</span>
+              <span className="text-xs font-semibold text-green-800">Google Scraper</span>
+            </div>
+            {editingScraper ? (
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5"><Phone className="w-3 h-3" /> Phone</label>
+                  <input value={gPhone} onChange={e => setGPhone(e.target.value)} placeholder="+1 234 567 8900" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5"><Globe className="w-3 h-3" /> Website</label>
+                  <input value={gWebsite} onChange={e => setGWebsite(e.target.value)} placeholder="https://company.com" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5">Address</label>
+                  <input value={gAddress} onChange={e => setGAddress(e.target.value)} placeholder="123 Main St, City" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5">Rating</label>
+                  <input value={gRating} onChange={e => setGRating(e.target.value)} placeholder="4.5" className={scraperInput} />
+                </div>
+              </div>
+            ) : (
+              (!s?.google?.biz_phone && !s?.google?.biz_website && !s?.google?.emails_found && !s?.google?.biz_address) ? (
+                <p className="text-xs text-gray-400 italic">No data found</p>
+              ) : (
+                <div className="space-y-1 text-xs text-gray-700">
+                  {s?.google?.biz_phone && <div className="flex items-start gap-1.5"><Phone className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" /><span><span className="font-medium text-gray-500">Phone: </span>{s.google.biz_phone}</span></div>}
+                  {s?.google?.biz_website && <div className="flex items-start gap-1.5"><Globe className="w-3 h-3 text-blue-600 flex-shrink-0 mt-0.5" /><span><span className="font-medium text-gray-500">Website: </span><a href={s.google.biz_website.startsWith('http') ? s.google.biz_website : `https://${s.google.biz_website}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{s.google.biz_website}</a></span></div>}
+                  {s?.google?.biz_address && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Address: </span>{s.google.biz_address}</span></div>}
+                  {s?.google?.biz_rating && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Rating: </span>⭐ {s.google.biz_rating}</span></div>}
+                  {s?.google?.emails_found > 0 && <div className="flex items-start gap-1.5"><Mail className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" /><span><span className="font-medium text-gray-500">Emails from search: </span>{s.google.emails_found} found</span></div>}
+                  {s?.google?.results > 0 && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Search results: </span>{s.google.results}</span></div>}
+                </div>
+              )
+            )}
+          </div>
 
-          {/* Apollo */}
+          {/* ── General Scraper Card ── */}
+          <div className="rounded-lg border p-3 bg-blue-50 border-blue-200">
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="text-base">🌐</span>
+              <span className="text-xs font-semibold text-blue-800">General</span>
+            </div>
+            {editingScraper ? (
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5"><Globe className="w-3 h-3" /> Website</label>
+                  <input value={glWebsite} onChange={e => setGlWebsite(e.target.value)} placeholder="https://company.com" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5">Address</label>
+                  <input value={glAddress} onChange={e => setGlAddress(e.target.value)} placeholder="123 Main St, City" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium mb-0.5">Industry</label>
+                  <input value={glIndustry} onChange={e => setGlIndustry(e.target.value)} placeholder="Manufacturing, Trading..." className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium mb-0.5">Description</label>
+                  <textarea value={glDescription} onChange={e => setGlDescription(e.target.value)} placeholder="Company description..."
+                    rows={2} className={`${scraperInput} resize-y`} />
+                </div>
+              </div>
+            ) : (
+              (!s?.global?.pages_scraped && !s?.global?.emails_found && !s?.global?.industry && !s?.global?.description) ? (
+                <p className="text-xs text-gray-400 italic">{!s?.global ? 'Not yet processed' : 'No data found'}</p>
+              ) : (
+                <div className="space-y-1 text-xs text-gray-700">
+                  {s?.global?.pages_scraped > 0 && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Pages scraped: </span>{s.global.pages_scraped}</span></div>}
+                  {s?.global?.industry && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Industry: </span>{s.global.industry}</span></div>}
+                  {s?.global?.description && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Info: </span>{s.global.description}</span></div>}
+                  {s?.global?.website && <div className="flex items-start gap-1.5"><Globe className="w-3 h-3 text-blue-600 flex-shrink-0 mt-0.5" /><span><span className="font-medium text-gray-500">Website: </span><a href={s.global.website.startsWith('http') ? s.global.website : `https://${s.global.website}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{s.global.website}</a></span></div>}
+                  {s?.global?.address && <div className="flex items-start gap-1.5"><span className="w-3 h-3 flex-shrink-0" /><span><span className="font-medium text-gray-500">Address: </span>{s.global.address}</span></div>}
+                  {s?.global?.emails_found > 0 && <div className="flex items-start gap-1.5"><Mail className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" /><span><span className="font-medium text-gray-500">Emails: </span>{s.global.emails_found} found</span></div>}
+                  {s?.global?.phones_found > 0 && <div className="flex items-start gap-1.5"><Phone className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" /><span><span className="font-medium text-gray-500">Phones: </span>{s.global.phones_found} found</span></div>}
+                </div>
+              )
+            )}
+          </div>
+
+          {/* ── Apollo Card ── */}
           <div className="rounded-lg border p-3 bg-purple-50 border-purple-200">
             <div className="flex items-center gap-1.5 mb-2">
               <span className="text-base">🚀</span>
               <span className="text-xs font-semibold text-purple-800">Apollo (Free)</span>
             </div>
-            {s?.apollo ? (
-              <div className="space-y-1.5 text-xs">
-                {s.apollo.domain && (
-                  <div className="flex items-center gap-1.5 text-gray-700">
-                    <Globe className="w-3 h-3 text-purple-500 flex-shrink-0" />
-                    <a href={`https://${s.apollo.domain}`} target="_blank" rel="noreferrer"
-                      className="font-mono text-purple-700 hover:underline truncate">{s.apollo.domain}</a>
+            {editingScraper ? (
+              <div className="space-y-2">
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5"><Globe className="w-3 h-3" /> Domain</label>
+                  <input value={apDomain} onChange={e => setApDomain(e.target.value)} placeholder="company.com" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5"><Phone className="w-3 h-3" /> Org Phone</label>
+                  <input value={apPhone} onChange={e => setApPhone(e.target.value)} placeholder="+1 234 567 8900" className={scraperInput} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 font-medium flex items-center gap-1 mb-0.5"><Linkedin className="w-3 h-3" /> Company LinkedIn</label>
+                  <input value={apLinkedin} onChange={e => setApLinkedin(e.target.value)} placeholder="https://linkedin.com/company/..." className={scraperInput} />
+                </div>
+                <div className="mt-2 pt-2 border-t border-purple-200">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-medium text-purple-700 flex items-center gap-1"><User className="w-3 h-3" /> People</p>
+                    <button onClick={addPerson} className="text-xs text-purple-600 hover:text-purple-800 flex items-center gap-0.5"><Plus className="w-3 h-3" /> Add</button>
                   </div>
-                )}
-                {s.apollo.org_phone && (
-                  <div className="flex items-center gap-1.5 text-gray-700">
-                    <Phone className="w-3 h-3 text-green-500 flex-shrink-0" />
-                    <span>{s.apollo.org_phone}</span>
-                  </div>
-                )}
-                {s.apollo.org_linkedin && (
-                  <div className="flex items-center gap-1.5 text-gray-700">
-                    <Linkedin className="w-3 h-3 text-blue-600 flex-shrink-0" />
-                    <a href={s.apollo.org_linkedin} target="_blank" rel="noreferrer"
-                      className="text-blue-600 hover:underline">Company LinkedIn</a>
-                  </div>
-                )}
-                {s.apollo.people?.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-purple-200">
-                    <p className="text-xs font-medium text-purple-700 mb-1.5 flex items-center gap-1">
-                      <User className="w-3 h-3" /> {s.apollo.people.length} person{s.apollo.people.length > 1 ? 's' : ''} found
-                    </p>
-                    {s.apollo.people.map((p, i) => (
-                      <div key={i} className="flex items-start gap-1.5 mb-1">
-                        <div className="w-5 h-5 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0">
-                          <span className="text-purple-700 text-xs font-bold">{(p.name || '?')[0]}</span>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-800 truncate">{p.name}</p>
-                          {p.title && <p className="text-gray-500 truncate">{p.title}</p>}
-                          {p.linkedin && (
-                            <a href={p.linkedin} target="_blank" rel="noreferrer"
-                              className="text-blue-600 hover:underline flex items-center gap-0.5 text-xs">
-                              <Linkedin className="w-2.5 h-2.5" /> LinkedIn
-                            </a>
-                          )}
-                        </div>
+                  {apPeople.map((p, i) => (
+                    <div key={i} className="flex items-start gap-1 mb-2 bg-white rounded-lg p-2 border border-purple-100">
+                      <div className="flex-1 space-y-1">
+                        <input value={p.name} onChange={e => updatePerson(i, 'name', e.target.value)} placeholder="Name" className={scraperInput} />
+                        <input value={p.title} onChange={e => updatePerson(i, 'title', e.target.value)} placeholder="Title / Position" className={scraperInput} />
+                        <input value={p.linkedin} onChange={e => updatePerson(i, 'linkedin', e.target.value)} placeholder="LinkedIn URL" className={scraperInput} />
                       </div>
-                    ))}
-                  </div>
-                )}
-                {!s.apollo.domain && !s.apollo.org_phone && (!s.apollo.people?.length) && (
-                  <p className="text-gray-400 italic">No data found</p>
-                )}
+                      <button onClick={() => removePerson(i)} disabled={apPeople.length === 1}
+                        className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-30 mt-1">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : (
-              <p className="text-xs text-gray-400 italic">Not yet processed</p>
+              s?.apollo ? (
+                <div className="space-y-1.5 text-xs">
+                  {s.apollo.domain && (
+                    <div className="flex items-center gap-1.5 text-gray-700">
+                      <Globe className="w-3 h-3 text-purple-500 flex-shrink-0" />
+                      <a href={`https://${s.apollo.domain}`} target="_blank" rel="noreferrer"
+                        className="font-mono text-purple-700 hover:underline truncate">{s.apollo.domain}</a>
+                    </div>
+                  )}
+                  {s.apollo.org_phone && (
+                    <div className="flex items-center gap-1.5 text-gray-700">
+                      <Phone className="w-3 h-3 text-green-500 flex-shrink-0" />
+                      <span>{s.apollo.org_phone}</span>
+                    </div>
+                  )}
+                  {s.apollo.org_linkedin && (
+                    <div className="flex items-center gap-1.5 text-gray-700">
+                      <Linkedin className="w-3 h-3 text-blue-600 flex-shrink-0" />
+                      <a href={s.apollo.org_linkedin} target="_blank" rel="noreferrer"
+                        className="text-blue-600 hover:underline">Company LinkedIn</a>
+                    </div>
+                  )}
+                  {s.apollo.people?.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-purple-200">
+                      <p className="text-xs font-medium text-purple-700 mb-1.5 flex items-center gap-1">
+                        <User className="w-3 h-3" /> {s.apollo.people.length} person{s.apollo.people.length > 1 ? 's' : ''} found
+                      </p>
+                      {s.apollo.people.map((p, i) => (
+                        <div key={i} className="flex items-start gap-1.5 mb-1">
+                          <div className="w-5 h-5 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0">
+                            <span className="text-purple-700 text-xs font-bold">{(p.name || '?')[0]}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-800 truncate">{p.name}</p>
+                            {p.title && <p className="text-gray-500 truncate">{p.title}</p>}
+                            {p.linkedin && (
+                              <a href={p.linkedin} target="_blank" rel="noreferrer"
+                                className="text-blue-600 hover:underline flex items-center gap-0.5 text-xs">
+                                <Linkedin className="w-2.5 h-2.5" /> LinkedIn
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {!s.apollo.domain && !s.apollo.org_phone && (!s.apollo.people?.length) && (
+                    <p className="text-gray-400 italic">No data found</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-400 italic">Not yet processed</p>
+              )
             )}
           </div>
         </div>
@@ -1141,41 +1310,7 @@ function ScraperDetailsPanel({ buyer, onSaved }) {
   );
 }
 
-function ScraperCard({ icon, title, color, items, empty, noDataMsg }) {
-  const colors = {
-    green: 'bg-green-50 border-green-200 text-green-800',
-    blue: 'bg-blue-50 border-blue-200 text-blue-800',
-  };
-  return (
-    <div className={`rounded-lg border p-3 ${colors[color]}`}>
-      <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-base">{icon}</span>
-        <span className="text-xs font-semibold">{title}</span>
-      </div>
-      {empty ? (
-        <p className="text-xs text-gray-400 italic">{noDataMsg || 'No data found'}</p>
-      ) : (
-        <div className="space-y-1 text-xs text-gray-700">
-          {items.map((item, i) => item && (
-            <div key={i} className="flex items-start gap-1.5">
-              {item.icon === 'email' && <Mail className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" />}
-              {item.icon === 'phone' && <Phone className="w-3 h-3 text-green-600 flex-shrink-0 mt-0.5" />}
-              {item.icon === 'globe' && <Globe className="w-3 h-3 text-blue-600 flex-shrink-0 mt-0.5" />}
-              {item.icon === 'text' && <span className="w-3 h-3 flex-shrink-0" />}
-              <span className="truncate break-all" title={item.value}>
-                <span className="font-medium text-gray-500">{item.label}: </span>
-                {item.icon === 'globe'
-                  ? <a href={item.value.startsWith('http') ? item.value : `https://${item.value}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{item.value}</a>
-                  : item.value
-                }
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+// ScraperCard removed — cards are now rendered inline with edit support in ScraperDetailsPanel
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
